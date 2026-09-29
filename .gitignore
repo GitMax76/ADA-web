@@ -1,0 +1,20 @@
+node_modules/
+dist/
+.vite/
+*.log
+.DS_Store
+Thumbs.db
+.env
+.env.*
+!.env.example
+# Input documents, exports and local sessions must never be committed.
+*.pdf
+*.doc
+*.docx
+*.odt
+*.zip
+documents/
+uploads/
+outputs/
+test-results/
+playwright-report/
