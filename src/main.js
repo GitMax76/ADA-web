@@ -1261,17 +1261,22 @@ function findRectsForFinding(f,items,viewport){
 function ocrRectsForFinding(f,pageData){
   if(!pageData?.ocrWords?.length || !f?.value) return [];
   const needleTokens=cleanNameCell(f.value).split(/\s+/).map(foldToken).filter(Boolean);
-  if(!needleTokens.length) return [];
+  const needleJoined=needleTokens.join('');
+  if(!needleJoined) return [];
   const rects=[];
   for(const words of ocrLines(pageData)){
-    const lineTokens=words.map(w=>foldToken(w.text));
-    for(let i=0;i<=lineTokens.length-needleTokens.length;i++){
-      let ok=true;
-      for(let j=0;j<needleTokens.length;j++){
-        if(lineTokens[i+j]!==needleTokens[j]){ ok=false; break; }
+    const lineTokens=words.map(w=>foldToken(w.text)).filter(Boolean);
+    for(let i=0;i<lineTokens.length;i++){
+      let joined='';
+      let matchedCount=0;
+      const maxTake=Math.min(4,lineTokens.length-i);
+      for(let take=1;take<=maxTake;take++){
+        joined+=lineTokens[i+take-1];
+        if(joined===needleJoined){ matchedCount=take; break; }
+        if(!needleJoined.startsWith(joined) && !joined.startsWith(needleJoined)) break;
       }
-      if(!ok) continue;
-      const matched=words.slice(i,i+needleTokens.length);
+      if(!matchedCount) continue;
+      const matched=words.slice(i,i+matchedCount);
       const x0=Math.min(...matched.map(w=>w.bbox.x0));
       const y0=Math.min(...matched.map(w=>w.bbox.y0));
       const x1=Math.max(...matched.map(w=>w.bbox.x1));
