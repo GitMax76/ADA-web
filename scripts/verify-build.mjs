@@ -14,7 +14,7 @@ for (const [, url] of html.matchAll(/(?:src|href)="([^"]+)"/g)) {
   assert(fs.existsSync('dist/' + url.slice('/ADA-web/'.length)), 'Missing asset: ' + url);
 }
 assert(sw.includes('pdf.worker.min-') && sw.includes('.mjs'), 'PDF worker missing from precache');
-assert(sw.includes('0.2.0-beta'), 'Missing cache version');
+assert(sw.includes('0.3.0-beta'), 'Missing cache version');
 assert(!sw.includes('skipWaiting('), 'Must not interrupt active sessions');
 assert(!fs.readdirSync('dist', { recursive: true }).some(f => /\.(pdf|docx?|odt|zip)$/i.test(f)));
 console.log('Build verified: subpath, manifest, icon dimensions, PDF worker cache, safe updates, no documents.');
