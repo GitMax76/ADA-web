@@ -958,7 +958,7 @@ function addContextNames(page,text){
 
 function addRoleBasedNames(page,text){
   if(!ENABLED_TYPES.name) return;
-  const rolePattern=/\b(?:Direttore|Dirigente|Responsabile|Medico|Referente|Primario)\b(?:\s+[A-Za-zÀ-ÿ.'’ -]{0,24})?\s+(?:(?:Dott\.?ssa?|Dott\.?|Dr\.?|Prof\.?|Prof\.ssa)\s*)?((?:[A-ZÀ-ÖØ-Ý]\.?\s*)?[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]{2,}(?:\s+[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]{2,})?)/giu;
+  const rolePattern=/\b(?:Direttore|Dirigente|Responsabile|Medico|Referente|Primario)\b(?:\s+[A-Za-zÀ-ÿ.'’ -]{0,24})?\s+(?:(?:Dott\.?ssa?|Dott\.?|Dr\.?|Prof\.?|Prof\.ssa)\s*)?((?:[A-ZÀ-ÖØ-Ý]\.?\s*)?(?:(?:De|Di|Da|Del|Della|Dello|Lo|La|Van|Von)\s+)?[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]{2,}(?:\s+[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]{2,})?)/giu;
   for(const m of text.matchAll(rolePattern)){
     const value=cleanNameCell(m[1]);
     const tokens=value.split(/\s+/).filter(Boolean);
@@ -967,7 +967,7 @@ function addRoleBasedNames(page,text){
   }
 
   // Forme compatte tipiche dei referti: "Dr L.Rinaldi", "Dott. M.Rossi", "Prof. A. Bianchi".
-  const compact=/\b(?:Dott\.?ssa?|Dott\.?|Dr\.?|Prof\.?|Prof\.ssa)\s*((?:[A-ZÀ-ÖØ-Ý]\.?\s*){0,2}[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]{2,})/gu;
+  const compact=/\b(?:Dott\.?ssa?|Dott\.?|Dr\.?|Prof\.?|Prof\.ssa)\s*((?:[A-ZÀ-ÖØ-Ý]\.?\s*){0,2}(?:(?:De|Di|Da|Del|Della|Dello|Lo|La|Van|Von)\s+)?[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]{2,}(?:\s+[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]{2,})?)/gu;
   for(const m of text.matchAll(compact)){
     const value=cleanNameCell(m[1]);
     const folded=value.split(/\s+/).filter(Boolean);
