@@ -1,3 +1,15 @@
+# 0.3.1-beta — OCR Precision & Shared Redaction Geometry
+
+- Preview ed export condividono la stessa geometria di oscuramento.
+- I bounding box OCR vengono mostrati anche in anteprima.
+- Eliminato il matching OCR parola-per-parola che generava oscuramenti eccessivi.
+- Rilevamento nomi reso contestuale e più conservativo.
+- Aggiunti ID personale e data di nascita ai profili standard.
+- Indirizzi gestiti per riga con via/civico/CAP/località.
+- Nuovi stili sicuri Nero, Nero + OMISSIS, Bianco + OMISSIS.
+- Controlli di oscuramento ridisegnati e rinominati.
+- Test di regressione per referti sanitari e falsi positivi clinici.
+
 # 0.3.0-beta — Guided Flow, Diagnostics & Bug Reporting
 
 - Percorso guidato in 5 passaggi: Carica, Configura, Rileva, Verifica, Scarica.
