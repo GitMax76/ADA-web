@@ -41,15 +41,20 @@ const state = {
 
 const PATTERNS = [
   { type: 'Codice fiscale', key: 'cf', re: /\b[A-Z]{6}[0-9]{2}[A-EHLMPRST][0-9]{2}[A-Z][0-9]{3}[A-Z]\b/gi },
+  { type: 'Protocollo / identificativo', key: 'protocol', re: /\bINPS-ISEE-\d{4}-[A-Z0-9]+-\d{2}\b/gi },
   { type: 'IBAN', key: 'iban', re: /\bIT\s?\d{2}\s?[A-Z]\s?\d{5}\s?\d{5}\s?[A-Z0-9]{12}\b/gi },
   { type: 'Email / PEC', key: 'email', re: /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi },
   { type: 'P. IVA', key: 'piva', re: /\b(?:IT\s*)?\d{11}\b/g },
-  { type: 'Telefono', key: 'phone', re: /(?<!\d)(?:\+39\s?)?(?:0\d{1,4}[\s./-]?\d{5,8}|3\d{2}[\s./-]?\d{6,7})(?!\d)/g },
+  // Evita di interpretare come telefono sequenze incorporate in protocolli/codici alfanumerici.
+  { type: 'Telefono', key: 'phone', re: /(?<![A-Z0-9-])(?:\+39\s?)?(?:0\d{1,4}[\s./-]?\d{5,8}|3\d{2}[\s./-]?\d{6,7})(?![A-Z0-9-])/gi },
   { type: 'Data', key: 'date', re: /\b(?:0?[1-9]|[12]\d|3[01])[\/.-](?:0?[1-9]|1[0-2])[\/.-](?:19|20)\d{2}\b/g },
+  // Opzionale: utile per documenti economici/ISEE quando la finalità richiede di rimuovere anche i valori.
+  { type: 'Importo / valore', key: 'amount', re: /(?<![\d.,])(?:[+-]\s*)?\d{1,3}(?:\.\d{3})*,\d{2}(?![\d.,])/g },
 ];
 
 const ENABLED_TYPES = {
-  cf: true, iban: true, email: true, piva: true, phone: true, date: false, name: true, address: true
+  cf: true, protocol: true, iban: true, email: true, piva: true, phone: true,
+  date: false, amount: false, name: true, address: true
 };
 
 function escapeHtml(s='') {
@@ -143,7 +148,7 @@ function bindPolicyModal(){
     status.textContent = 'Per utilizzare A.D.A. Web è necessario accettare le condizioni. Puoi chiudere questa scheda del browser.';
   });
   accept.addEventListener('click', () => {
-    try { localStorage.setItem(POLICY_ACCEPT_KEY, JSON.stringify({ acceptedAt: new Date().toISOString(), version: '0.2.0-beta' })); } catch {}
+    try { localStorage.setItem(POLICY_ACCEPT_KEY, JSON.stringify({ acceptedAt: new Date().toISOString(), version: '0.2.1-beta' })); } catch {}
     modal.remove();
     document.body.classList.remove('modal-open');
   });
@@ -158,10 +163,9 @@ function render() {
           <img class="app-icon" src="${import.meta.env.BASE_URL}ada-icon.png" alt="Icona A.D.A.">
         </div>
         <div class="brand-copy">
-          <div class="eyebrow">A.D.A. WEB • 0.2.0-beta</div>
+          <div class="eyebrow">A.D.A. WEB • 0.2.1-beta</div>
           <h1>A.D.A. <span>Anonimizzatore Documenti Autonomo</span></h1>
           <div class="institution-credit">Tool sviluppato dalla Soprintendenza ABAP per le Province di Salerno e Avellino, Ufficio Informatico.</div>
-          <div class="style-note">Interfaccia ispirata ai colori e allo stile istituzionale, senza utilizzo del marchio ufficiale.</div>
         </div>
       </div>
       <div class="local-badge">🔒 Elaborazione locale</div>
@@ -185,7 +189,7 @@ function render() {
       <section class="panel settings">
         <div class="panel-title">Tipi di dati</div>
         <div class="chips" id="typeChips">
-          ${chip('cf','Codice fiscale')}${chip('iban','IBAN')}${chip('email','Email / PEC')}${chip('phone','Telefono')}${chip('piva','P. IVA')}${chip('name','Nomi')}${chip('address','Indirizzi')}${chip('date','Date')}
+          ${chip('cf','Codice fiscale')}${chip('protocol','Protocollo / ID')}${chip('iban','IBAN')}${chip('email','Email / PEC')}${chip('phone','Telefono')}${chip('piva','P. IVA')}${chip('name','Nomi')}${chip('address','Indirizzi')}${chip('date','Date')}${chip('amount','Importi / valori')}
         </div>
         <div class="setting-row">
           <label><input type="checkbox" id="ocrToggle" ${state.ocrEnabled?'checked':''}> OCR locale per pagine scansite</label>
@@ -247,12 +251,14 @@ function render() {
                 <option value="all">Tutti</option>
                 <option value="name">Nomi</option>
                 <option value="cf">Codici fiscali</option>
+                <option value="protocol">Protocolli / identificativi</option>
                 <option value="email">Email / PEC</option>
                 <option value="phone">Telefoni</option>
                 <option value="iban">IBAN</option>
                 <option value="piva">P. IVA</option>
                 <option value="address">Indirizzi</option>
                 <option value="date">Date</option>
+                <option value="amount">Importi / valori</option>
                 <option value="manual">Aree manuali</option>
               </select>
             </label>
@@ -536,6 +542,70 @@ function extractOcrWords(data){
   return out;
 }
 
+const CF_VALUE_RE=/^[A-Z]{6}[0-9]{2}[A-EHLMPRST][0-9]{2}[A-Z][0-9]{3}[A-Z]$/i;
+const NAME_STOP_WORDS=new Set([
+  'AGENZIA','ATTESTAZIONE','BENE','CALCOLATO','CODICE','COGNOME','COMPONENTI','CORSI',
+  'DICHIARANTE','DICHIARAZIONE','DIREZIONE','ECONOMICA','ENTRATE','FAMILIARE','FAMILIARI',
+  'FISCALE','INDICATORE','INCLUSIONE','INPS','MINORENNI','MINISTERO','MODALITÀ','NOME',
+  'NUCLEO','ORDINARIO','PATRIMONIALE','PRESTAZIONI','PRESIDENTE','PROTOCOLLO','REDDITUALE',
+  'SANITARIE','SITUAZIONE','SOSTITUTIVA','SPECIFICHE','TIMBRO','UNICA','UFFICIO','VALORE'
+]);
+
+function cleanNameCell(value=''){
+  return value.replace(/\s+/g,' ').trim();
+}
+
+function isUpperNameCell(value=''){
+  const v=cleanNameCell(value);
+  if(!v || !/^[A-ZÀ-ÖØ-Ý' -]+$/u.test(v)) return false;
+  const tokens=v.split(/[\s-]+/).filter(Boolean);
+  if(!tokens.length || tokens.some(t=>t.length<2 || NAME_STOP_WORDS.has(t.toUpperCase()))) return false;
+  return tokens.length<=4;
+}
+
+function addStructuredNames(page){
+  if(!ENABLED_TYPES.name || !page.items?.length) return;
+  const cells=page.items.map(i=>cleanNameCell(i.str)).filter(Boolean);
+  for(let i=0;i<cells.length;i++){
+    if(!CF_VALUE_RE.test(cells[i])) continue;
+    const parts=[];
+    for(let j=i-1;j>=0 && j>=i-7 && parts.length<2;j--){
+      const candidate=cells[j];
+      if(/^[DCF]$/i.test(candidate)) continue;
+      if(CF_VALUE_RE.test(candidate)) break;
+      if(isUpperNameCell(candidate)){
+        parts.unshift(candidate);
+        continue;
+      }
+      if(parts.length) break;
+    }
+    const value=parts.join(' ').trim();
+    if(value.split(/\s+/).length>=2) addFinding('Nome','name',value,page.pageNumber);
+  }
+}
+
+function addContextNames(page,text){
+  if(!ENABLED_TYPES.name) return;
+
+  // Formula amministrativa frequente: "presentata da NOME COGNOME in data ..."
+  const declaredBy=/\bpresentata\s+da\s+([A-ZÀ-ÖØ-Ý][A-ZÀ-ÖØ-Ý' -]{2,70}?)\s+in\s+data\b/giu;
+  for(const m of text.matchAll(declaredBy)){
+    const value=cleanNameCell(m[1]);
+    const tokens=value.split(/\s+/).filter(Boolean);
+    if(tokens.length>=2 && tokens.length<=4 && tokens.every(t=>!NAME_STOP_WORDS.has(t.toUpperCase()))){
+      addFinding('Nome','name',value,page.pageNumber);
+    }
+  }
+
+  // Nomi in maiuscolo/minuscolo (es. firme), con blacklist per ridurre intestazioni e falsi positivi.
+  const titleNameRe=/\b(?:Sig\.?|Sig\.ra|Dott\.?|Dott\.ssa|Avv\.?|Ing\.?|Arch\.?)?\s*([A-ZÀ-ÖØ-Ý][a-zà-öø-ÿ']{2,})\s+([A-ZÀ-ÖØ-Ý][a-zà-öø-ÿ']{2,})\b/g;
+  for(const m of text.matchAll(titleNameRe)){
+    const tokens=[m[1],m[2]];
+    if(tokens.some(t=>NAME_STOP_WORDS.has(t.toUpperCase()))) continue;
+    addFinding('Nome','name',tokens.join(' '),page.pageNumber);
+  }
+}
+
 function detectPage(page){
   const text=(page.text+' '+page.ocrText).replace(/\s+/g,' ');
   for(const def of PATTERNS){
@@ -544,13 +614,10 @@ function detectPage(page){
       addFinding(def.type,def.key,m[0],page.pageNumber);
     }
   }
-  if(ENABLED_TYPES.name){
-    const nameRe=/\b(?:Sig\.?|Sig\.ra|Dott\.?|Dott\.ssa|Avv\.?|Ing\.?|Arch\.?)?\s*([A-ZÀ-ÖØ-Ý][a-zà-öø-ÿ']{2,})\s+([A-ZÀ-ÖØ-Ý][a-zà-öø-ÿ']{2,})\b/g;
-    for(const m of text.matchAll(nameRe)){
-      const v=(m[1]+' '+m[2]).trim();
-      if(!/^(Comune|Ministero|Direzione|Ufficio|Provincia|Regione|Protocollo|Oggetto)$/i.test(v)) addFinding('Nome','name',v,page.pageNumber);
-    }
-  }
+
+  addStructuredNames(page);
+  addContextNames(page,text);
+
   if(ENABLED_TYPES.address){
     const addrRe=/\b(?:Via|Viale|Piazza|Corso|Largo|Vicolo|Strada|Località)\s+[A-ZÀ-ÖØ-Ý][\wÀ-ÿ'.\- ]{2,50}(?:,?\s*\d{1,4}[A-Za-z\/]*)?/g;
     for(const m of text.matchAll(addrRe)) addFinding('Indirizzo','address',m[0].trim(),page.pageNumber);
