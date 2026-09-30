@@ -1,3 +1,17 @@
+# 0.3.0-beta — Guided Flow, Diagnostics & Bug Reporting
+
+- Percorso guidato in 5 passaggi: Carica, Configura, Rileva, Verifica, Scarica.
+- Caricamento multiplo e selezione cartella sui browser desktop compatibili.
+- Profili tecnici modificabili per Standard, Trasparenza/Pubblicazione e Dataset/AI/Ricerca.
+- Diagnostica locale privacy-first con cronologia limitata degli eventi tecnici.
+- Nessun documento, testo, nome file, percorso locale o dato rilevato nei report.
+- Rilevazione PDF raster/scansionati e gestione più robusta dei PDF già anonimizzati.
+- Watchdog OCR per evitare blocchi indefiniti e messaggi guidati in caso di problemi.
+- Segnalazione bug guidata con anteprima della diagnostica, copia/download locale e GitHub Issue precompilata.
+- Nessun token GitHub esposto nel frontend.
+- Workflow GitHub quindicinale per riepilogare automaticamente le issue [ADA BUG].
+- Test browser estesi al flusso guidato, diagnostica e riapertura di un PDF rasterizzato prodotto da A.D.A.
+
 # 0.2.0-beta — GitHub Pages Ready
 
 - Base /ADA-web/, workflow Pages e lockfile.
