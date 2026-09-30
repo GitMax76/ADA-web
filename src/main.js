@@ -992,8 +992,8 @@ function addOcrAddresses(page){
     const city=/\b(\d{5})\s*[-–]?\s*([A-ZÀ-ÖØ-Ý][A-ZÀ-ÖØ-Ý'’ -]{2,})(?:\s*\(([A-Z]{2})\))?/u.exec(line);
     if(city){
       addFinding('Indirizzo','address',city[1],page.pageNumber);
-      addFinding('Indirizzo','address',cleanNameCell(city[2]),page.pageNumber);
-      if(city[3]) addFinding('Indirizzo','address',city[3],page.pageNumber);
+      const locality=cleanNameCell(city[2])+(city[3]?' '+city[3]:'');
+      addFinding('Indirizzo','address',locality,page.pageNumber);
     }
   }
 }
