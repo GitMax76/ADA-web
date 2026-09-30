@@ -952,14 +952,6 @@ function addContextNames(page,text){
     if(tokens.length && tokens.length<=3 && tokens.every(t=>isPersonWord(t)||/^[A-Z]\.?$/i.test(t))) addFinding('Nome','name',value,page.pageNumber);
   }
 
-  // Su PDF testuali manteniamo una ricerca prudente di coppie Nome Cognome in forma normale.
-  if(!page.ocrWords?.length){
-    const nativePair=/\b([A-ZÀ-ÖØ-Ý][a-zà-öø-ÿ'’]{2,})\s+([A-ZÀ-ÖØ-Ý][a-zà-öø-ÿ'’]{2,})\b/g;
-    for(const m of text.matchAll(nativePair)){
-      const tokens=[m[1],m[2]];
-      if(tokens.every(isPersonWord)) addFinding('Nome','name',tokens.join(' '),page.pageNumber);
-    }
-  }
 }
 
 function addContextualIdentifiers(page,text){
@@ -975,26 +967,60 @@ function addContextualIdentifiers(page,text){
   }
 }
 
+
+function nativeLines(page){
+  const rows=[];
+  for(const item of (page.items||[])){
+    const y=Number(item.transform?.[5]||0);
+    const h=Math.max(2,Math.abs(item.height||item.transform?.[3]||8));
+    let row=rows.find(r=>Math.abs(r.y-y)<=Math.max(r.h,h)*.55);
+    if(!row){
+      row={y,h,items:[]};
+      rows.push(row);
+    }
+    row.items.push(item);
+    row.y=(row.y*(row.items.length-1)+y)/row.items.length;
+    row.h=Math.max(row.h,h);
+  }
+  return rows
+    .sort((a,b)=>b.y-a.y)
+    .map(r=>r.items.sort((a,b)=>(a.transform?.[4]||0)-(b.transform?.[4]||0)));
+}
+
+function addAddressFromLine(line,pageNumber){
+  if(!ENABLED_TYPES.address || !line) return;
+
+  const street=/\b(?:Via|Viale|Piazza|Corso|Largo|Vicolo|Strada|Località)\s*:?\s*(.+?)(?=\s+(?:n\.?|civ(?:ico)?\.?)\s*[0-9]|\s+\d{5}\b|$)/iu.exec(line);
+  if(street){
+    const streetValue=cleanNameCell(street[1]).replace(/[,:;.-]+$/,'');
+    if(streetValue.length>=2 && streetValue.length<=60) addFinding('Indirizzo','address',streetValue,pageNumber);
+    const civic=/\b(?:n\.?|civ(?:ico)?\.?)\s*([0-9]+(?:[\/-][A-Z0-9]+)?[A-Z]?)/iu.exec(line);
+    if(civic) addFinding('Indirizzo','address',civic[1],pageNumber);
+  }
+
+  const city=/\b(\d{5})\s*[-–]?\s*([A-ZÀ-ÖØ-Ý][A-ZÀ-ÖØ-Ý'’ -]{2,})(?:\s*\(([A-Z]{2})\))?/u.exec(line);
+  if(city){
+    addFinding('Indirizzo','address',city[1],pageNumber);
+    const locality=cleanNameCell(city[2])+(city[3]?' '+city[3]:'');
+    addFinding('Indirizzo','address',locality,pageNumber);
+  }
+}
+
+function addNativeAddresses(page){
+  if(!ENABLED_TYPES.address || !page.items?.length) return;
+  for(const items of nativeLines(page)){
+    const line=items.map(i=>i.str).join(' ').replace(/\s+/g,' ').trim();
+    addAddressFromLine(line,page.pageNumber);
+  }
+}
+
 function addOcrAddresses(page){
   if(!ENABLED_TYPES.address || !page.ocrWords?.length) return;
   for(const words of ocrLines(page)){
     const line=words.map(w=>w.text).join(' ').replace(/\s+/g,' ').trim();
     if(!line) continue;
 
-    const street=/\b(?:Via|Viale|Piazza|Corso|Largo|Vicolo|Strada|Località)\s*:?\s*(.+?)(?=\s+(?:n\.?|civ(?:ico)?\.?)\s*[0-9]|\s+\d{5}\b|$)/iu.exec(line);
-    if(street){
-      const streetValue=cleanNameCell(street[1]).replace(/[,:;.-]+$/,'');
-      if(streetValue.length>=2 && streetValue.length<=60) addFinding('Indirizzo','address',streetValue,page.pageNumber);
-      const civic=/\b(?:n\.?|civ(?:ico)?\.?)\s*([0-9]+(?:[\/-][A-Z0-9]+)?[A-Z]?)/iu.exec(line);
-      if(civic) addFinding('Indirizzo','address',civic[1],page.pageNumber);
-    }
-
-    const city=/\b(\d{5})\s*[-–]?\s*([A-ZÀ-ÖØ-Ý][A-ZÀ-ÖØ-Ý'’ -]{2,})(?:\s*\(([A-Z]{2})\))?/u.exec(line);
-    if(city){
-      addFinding('Indirizzo','address',city[1],page.pageNumber);
-      const locality=cleanNameCell(city[2])+(city[3]?' '+city[3]:'');
-      addFinding('Indirizzo','address',locality,page.pageNumber);
-    }
+    addAddressFromLine(line,page.pageNumber);
   }
 }
 
@@ -1012,11 +1038,7 @@ function detectPage(page){
   addOcrIdentityNames(page);
   addContextNames(page,text);
   addOcrAddresses(page);
-
-  if(ENABLED_TYPES.address && !page.ocrWords?.length){
-    const addrRe=/\b(?:Via|Viale|Piazza|Corso|Largo|Vicolo|Strada|Località)\s*:?\s+[A-ZÀ-ÖØ-Ý][\wÀ-ÿ'.’\- ]{2,50}(?:,?\s*\d{1,4}[A-Za-z\/]*)?/g;
-    for(const m of text.matchAll(addrRe)) addFinding('Indirizzo','address',m[0].trim(),page.pageNumber);
-  }
+  addNativeAddresses(page);
 }
 
 function addFinding(type,key,value,page){
