@@ -168,8 +168,11 @@ test('medical footer signatories and redaction selector remain robust and readab
     ['Fattore Rh', 505, font],
     ['Test di Coombs Indiretto', 480, font],
     ['Proteine Totali', 455, font],
-    ['Il Dirigente', 92, font],
-    ['Dr L.Rinaldi', 72, bold],
+    ['Il Dirigente', 132, font],
+    ['Dr L.Rinaldi', 112, bold],
+    ['Responsabile Dott.ssa Anna Verdi', 92, font],
+    ['Medico Dr Bianchi', 72, bold],
+    ['Referente Prof. A. De Luca', 52, font],
   ];
   for (const [txt,y,usedFont] of lines) p.drawText(txt,{x:48,y,font:usedFont,size:12});
 
@@ -186,6 +189,9 @@ test('medical footer signatories and redaction selector remain robust and readab
   const values = await page.locator('[data-edit]').evaluateAll(nodes => nodes.map(n => n.value));
   expect(values.some(v => /Francesco\s+Annarumma/i.test(v))).toBeTruthy();
   expect(values.some(v => /L\.?\s*Rinaldi/i.test(v))).toBeTruthy();
+  expect(values.some(v => /Anna\s+Verdi/i.test(v))).toBeTruthy();
+  expect(values.some(v => /^Bianchi$/i.test(v))).toBeTruthy();
+  expect(values.some(v => /A\.?\s*De\s+Luca/i.test(v))).toBeTruthy();
 
   for (const falsePositive of [
     'Gruppo Sanguigno',
