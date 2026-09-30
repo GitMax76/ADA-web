@@ -1327,6 +1327,7 @@ async function resetSession(){
   if(state.ocrWorker){ try{await state.ocrWorker.terminate();}catch{} state.ocrWorker=null; }
   state.files=[];state.findings=[];state.pages=[];state.pdfBytes=null;state.outputBytes=null;state.currentIndex=0;state.currentPage=1;state.totalPages=0;state.manualMode=false; state.adjustMode=false;state.filters={type:'all',status:'all',page:'all',search:''};
   state.wizardStep=1;state.pdfType='unknown';state.currentStage='idle';state.analysisWarnings=[];state.diagEvents=[];
+  Object.assign(ENABLED_TYPES,PROFILES.standard.types);
   render();
 }
 
