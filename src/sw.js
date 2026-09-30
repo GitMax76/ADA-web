@@ -3,7 +3,7 @@ import { precacheAndRoute, cleanupOutdatedCaches, createHandlerBoundToURL } from
 import { registerRoute, NavigationRoute } from 'workbox-routing';
 
 const prefix = `ada-web-${new URL(self.registration.scope).pathname}`;
-const version = '0.3.0-beta';
+const version = '0.3.1-beta';
 setCacheNameDetails({ prefix, suffix: version });
 precacheAndRoute(self.__WB_MANIFEST);
 cleanupOutdatedCaches();
