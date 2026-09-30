@@ -6,7 +6,7 @@ export default defineConfig({
   use: {
     baseURL: process.env.ADA_TEST_URL || 'http://localhost:4173',
     headless: true,
-    channel: process.env.CI ? undefined : 'msedge',
+    channel: process.env.CI ? 'chrome' : 'msedge',
     acceptDownloads: true,
   },
   webServer: process.env.ADA_TEST_URL ? undefined : {
