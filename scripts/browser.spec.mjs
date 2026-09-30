@@ -82,3 +82,63 @@ test('guided flow, Pages subpath, diagnostics, raster re-open, responsive review
   await expect(page.locator('#progressLabel')).toContainText('Completato', { timeout: 30000 });
   expect(errors).toEqual([]);
 });
+
+
+test('medical-style identity fields are detected without treating clinical labels as names', async ({ page }) => {
+  await page.goto('/ADA-web/');
+  for (const section of await page.locator('[data-policy-section] summary').all()) await section.click();
+  await page.locator('#policyConfirm').check();
+  await page.locator('#policyAcceptBtn').click();
+
+  const pdf = await PDFDocument.create();
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const p = pdf.addPage([595, 842]);
+  const rows = [
+    ['Cod Donatore: 220335', 790, font],
+    ['Nato il 14/02/1976', 765, font],
+    ['RSSMRA76B14H703X', 740, font],
+    ['ROSSI MARIO', 715, bold],
+    ['Via: GELSO n 12/A', 690, font],
+    ['84100 - SALERNO (SA)', 665, bold],
+    ['Immunoematologia Trasfusionale', 610, font],
+    ['Cod Donatore', 585, font],
+    ['Esame Esito', 560, font],
+    ['Gruppo Sanguigno', 535, font],
+    ['Coombs Indiretto', 510, font],
+    ['Proteine Totali', 485, font],
+  ];
+  for (const [txt,y,usedFont] of rows) p.drawText(txt,{x:55,y,font:usedFont,size:13});
+
+  await page.locator('#ocrToggle').uncheck();
+  await page.locator('#fileInput').setInputFiles({
+    name:'synthetic-medical.pdf',
+    mimeType:'application/pdf',
+    buffer:Buffer.from(await pdf.save())
+  });
+  await page.locator('#profileSelect').selectOption('standard');
+  await page.locator('#analyzeBtn').click();
+  await expect(page.locator('#progressLabel')).toContainText('Completato',{timeout:30000});
+
+  const values = await page.locator('[data-edit]').evaluateAll(nodes => nodes.map(n => n.value));
+  expect(values).toContain('220335');
+  expect(values).toContain('14/02/1976');
+  expect(values).toContain('RSSMRA76B14H703X');
+  expect(values).toContain('ROSSI MARIO');
+  expect(values).toContain('GELSO');
+  expect(values).toContain('12/A');
+  expect(values).toContain('84100');
+
+  for (const falsePositive of [
+    'Immunoematologia Trasfusionale',
+    'Cod Donatore',
+    'Esame Esito',
+    'Gruppo Sanguigno',
+    'Coombs Indiretto',
+    'Proteine Totali',
+  ]) expect(values).not.toContain(falsePositive);
+
+  await expect(page.locator('.preview .redaction-box').first()).toBeVisible();
+  await page.locator('#redactionMode').selectOption('white');
+  await expect(page.locator('.preview .redaction-box.mode-white').first()).toBeVisible();
+});
