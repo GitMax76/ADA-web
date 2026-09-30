@@ -1,7 +1,7 @@
 import './style.css';
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
+import { PDFDocument } from 'pdf-lib';
 import { createWorker } from 'tesseract.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
@@ -1453,7 +1453,6 @@ async function exportRedacted(){
   try{
     const src=await pdfjsLib.getDocument({data:state.pdfBytes.slice()}).promise;
     const out=await PDFDocument.create();
-    const helv=await out.embedFont(StandardFonts.Helvetica);
     for(let p=1;p<=src.numPages;p++){
       if(state.abort) throw new Error('Esportazione annullata');
       const page=await src.getPage(p);
@@ -1464,36 +1463,18 @@ async function exportRedacted(){
       const t=await page.getTextContent();
       const items=t.items.filter(i=>i.str&&i.str.trim());
       const fs=state.findings.filter(f=>f.enabled&&f.page===p);
-      for(const f of fs.filter(x=>(x.manual&&x.coords)||x.overrideCoords)){
-        const c=f.overrideCoords||f.coords; ctx.fillStyle='black'; ctx.fillRect(c.x*vp.width,c.y*vp.height,c.w*vp.width,c.h*vp.height);
-      }
-      for(const f of fs.filter(x=>!x.manual&&!x.overrideCoords)){
-        for(const c of findRectsForFinding(f,items,vp)){
-          ctx.fillStyle='black';
-          ctx.fillRect(c.x*vp.width,c.y*vp.height,c.w*vp.width,c.h*vp.height);
-        }
-      }
-      // OCR-only findings: conservative full-page text cannot be mapped reliably without word boxes in this MVP.
-      // If OCR words exist, map exact/partial word matches and burn them into the raster.
       const pd=state.pages.find(x=>x.pageNumber===p);
-      if(pd?.ocrWords?.length){
-        for(const f of fs){
-          const parts=normalize(f.value).split(' ').filter(Boolean);
-          for(const w of pd.ocrWords){
-            if(parts.some(part=>normalize(w.text)===part && part.length>2)){
-              const sx=vp.width/pd.viewport.width, sy=vp.height/pd.viewport.height;
-              const b=w.bbox; ctx.fillStyle='black';ctx.fillRect(b.x0*sx,b.y0*sy,(b.x1-b.x0)*sx,(b.y1-b.y0)*sy);
-            }
-          }
+      for(const f of fs){
+        if((f.manual&&f.coords)||f.overrideCoords){
+          paintRedaction(ctx,f.overrideCoords||f.coords,vp);
+          continue;
         }
+        for(const c of resolveRectsForFinding(f,items,vp,pd)) paintRedaction(ctx,c,vp);
       }
       const png=await new Promise(res=>canvas.toBlob(res,'image/png',0.92));
       const pngBytes=new Uint8Array(await png.arrayBuffer());
       const img=await out.embedPng(pngBytes);
       const op=out.addPage([vp.width,vp.height]); op.drawImage(img,{x:0,y:0,width:vp.width,height:vp.height});
-      if(state.redactionMode!=='black' && fs.length){
-        op.drawText(state.redactionMode==='redacted'?'[REDACTED]':'***',{x:12,y:12,size:8,font:helv,color:rgb(.2,.2,.2)});
-      }
       progress(10+(p/src.numPages)*80,`Anonimizzazione pagina ${p}/${src.numPages}…`);
     }
     state.outputBytes=await out.save();
