@@ -1253,7 +1253,10 @@ function normalize(s){return (s||'').toLowerCase().replace(/\s+/g,' ').trim();}
 
 async function exportRedacted(){
   if(!state.pdfBytes) return;
-  state.abort=false; setBusy(true,'Preparazione esportazione…'); progress(5);
+  state.abort=false;
+  state.currentStage='export';
+  recordDiag('export_start','ok',{stage:'export',pages:state.totalPages,pdfType:state.pdfType,findings:state.findings.filter(f=>f.enabled).length});
+  setBusy(true,'Preparazione esportazione…'); progress(5);
   try{
     const src=await pdfjsLib.getDocument({data:state.pdfBytes.slice()}).promise;
     const out=await PDFDocument.create();
@@ -1306,8 +1309,16 @@ async function exportRedacted(){
     const srcName=state.files[state.currentIndex].name.replace(/\.pdf$/i,'');
     a.href=url;a.download=`${srcName}_ANONIMIZZATO.pdf`;document.body.appendChild(a);a.click();a.remove();
     setTimeout(()=>URL.revokeObjectURL(url),1500);
+    state.currentStage='complete';
+    updateWizard(5);
+    recordDiag('export_complete','ok',{stage:'complete',pages:src.numPages,pdfType:state.pdfType,findings:state.findings.filter(f=>f.enabled).length});
     progress(100,'Documento anonimizzato e scaricato');
-  }catch(err){ progress(100,err.message||'Errore esportazione'); }
+  }catch(err){
+    const code=safeErrorCode('export',err);
+    recordDiag('export_failed','error',{stage:'export',code,pages:state.totalPages,pdfType:state.pdfType});
+    updateAnalysisHint('Esportazione non completata. Nessun documento è stato inviato online. Puoi riprovare o segnalare il problema.','error');
+    progress(100,err.message||'Errore esportazione');
+  }
   finally{setBusy(false);}
 }
 
@@ -1315,6 +1326,7 @@ async function resetSession(){
   state.abort=true;
   if(state.ocrWorker){ try{await state.ocrWorker.terminate();}catch{} state.ocrWorker=null; }
   state.files=[];state.findings=[];state.pages=[];state.pdfBytes=null;state.outputBytes=null;state.currentIndex=0;state.currentPage=1;state.totalPages=0;state.manualMode=false; state.adjustMode=false;state.filters={type:'all',status:'all',page:'all',search:''};
+  state.wizardStep=1;state.pdfType='unknown';state.currentStage='idle';state.analysisWarnings=[];state.diagEvents=[];
   render();
 }
 
