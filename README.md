@@ -1,7 +1,18 @@
-# A.D.A. Web — 0.3.0-beta
+# A.D.A. Web — 0.3.1-beta
 Anonimizzatore Documenti Autonomo. Release **GitHub Pages Ready**, derivata dal codice originale **0.1.9-beta No Nested Scroll**.
 
 **App:** https://GitMax76.github.io/ADA-web/
+
+## Novità 0.3.1-beta — OCR Precision & Shared Redaction Geometry
+
+- Corretto il problema per cui i rettangoli potevano non apparire in anteprima sui PDF raster/scansionati: anteprima ed esportazione usano ora la stessa geometria, inclusi i bounding box OCR.
+- Rimosso il vecchio matching OCR per singole parole, che poteva oscurare parole cliniche non correlate.
+- Rilevamento nomi reso più prudente: niente più euristica generica su qualunque coppia di parole; priorità a contesti come codice fiscale, titoli/ruoli e formule amministrative.
+- Aggiunti di default **ID personale** e **Data di nascita**.
+- Indirizzi OCR e PDF testuali analizzati riga per riga, con gestione separata di via, civico, CAP/località.
+- Nuovi stili di oscuramento sicuri: **Nero compatto**, **Nero + OMISSIS**, **Bianco + OMISSIS**. In tutti i casi il contenuto sottostante viene rasterizzato e sostituito.
+- Migliorati testi e stile dei controlli **Stile oscuramento** e **Margine oscuramento**.
+- Aggiunto un test di regressione sintetico ispirato ai referti sanitari per verificare che etichette come “Gruppo Sanguigno”, “Coombs Indiretto” e “Proteine Totali” non vengano classificate come nomi.
 
 ## Novità 0.3.0-beta — Guided Flow & Diagnostics
 
