@@ -617,7 +617,7 @@ function bind(){
   document.querySelector('#redactionMode').onchange=e=>state.redactionMode=e.target.value;
   document.querySelector('#precisionMode').onchange=e=>{state.precisionMode=e.target.value; if(state.pdfBytes) renderPreview(state.currentPage);};
   document.querySelector('#analyzeBtn').onclick=analyzeCurrent;
-  document.querySelector('#cancelBtn').onclick=()=>{state.abort=true;};
+  document.querySelector('#cancelBtn').onclick=async()=>{state.abort=true;recordDiag('operation_cancelled','warning',{stage:state.currentStage});updateAnalysisHint('Operazione annullata dall’utente. Nessun documento è stato inviato online.','warning');try{await state.ocrWorker?.terminate();}catch{}state.ocrWorker=null;};
   document.querySelector('#resetBtn').onclick=resetSession;
   document.querySelector('#exportBtn').onclick=exportRedacted;
   document.querySelector('#prevPageBtn').onclick=()=>goToPage(state.currentPage-1);
