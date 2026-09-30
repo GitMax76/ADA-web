@@ -614,7 +614,7 @@ function bind(){
     profileSelect.onchange=e=>{ if(e.target.value!=='custom') applyProfile(e.target.value); };
   }
   document.querySelector('#ocrToggle').onchange=e=>state.ocrEnabled=e.target.checked;
-  document.querySelector('#redactionMode').onchange=e=>state.redactionMode=e.target.value;
+  document.querySelector('#redactionMode').onchange=e=>{state.redactionMode=e.target.value; if(state.pdfBytes) renderPreview(state.currentPage);};
   document.querySelector('#precisionMode').onchange=e=>{state.precisionMode=e.target.value; if(state.pdfBytes) renderPreview(state.currentPage);};
   document.querySelector('#analyzeBtn').onclick=analyzeCurrent;
   document.querySelector('#cancelBtn').onclick=async()=>{state.abort=true;recordDiag('operation_cancelled','warning',{stage:state.currentStage});updateAnalysisHint('Operazione annullata dall’utente. Nessun documento è stato inviato online.','warning');try{await state.ocrWorker?.terminate();}catch{}state.ocrWorker=null;};
@@ -1161,7 +1161,8 @@ async function renderPreview(pageNum){
       box.classList.add(f.manual?'manual-box':'adjusted-box');
       continue;
     }
-    const matches=findRectsForFinding(f,items,viewport);
+    const pd=state.pages.find(x=>x.pageNumber===pageNum);
+    const matches=resolveRectsForFinding(f,items,viewport,pd);
     for(const coords of matches){
       const box=appendManualBox(overlay,coords,false);
       box.dataset.findingId=f.id;
@@ -1212,9 +1213,79 @@ function findRectsForFinding(f,items,viewport){
   return rects;
 }
 
+
+function ocrRectsForFinding(f,pageData){
+  if(!pageData?.ocrWords?.length || !f?.value) return [];
+  const needleTokens=cleanNameCell(f.value).split(/\s+/).map(foldToken).filter(Boolean);
+  if(!needleTokens.length) return [];
+  const rects=[];
+  for(const words of ocrLines(pageData)){
+    const lineTokens=words.map(w=>foldToken(w.text));
+    for(let i=0;i<=lineTokens.length-needleTokens.length;i++){
+      let ok=true;
+      for(let j=0;j<needleTokens.length;j++){
+        if(lineTokens[i+j]!==needleTokens[j]){ ok=false; break; }
+      }
+      if(!ok) continue;
+      const matched=words.slice(i,i+needleTokens.length);
+      const x0=Math.min(...matched.map(w=>w.bbox.x0));
+      const y0=Math.min(...matched.map(w=>w.bbox.y0));
+      const x1=Math.max(...matched.map(w=>w.bbox.x1));
+      const y1=Math.max(...matched.map(w=>w.bbox.y1));
+      const pad=state.precisionMode==='wide'?3:state.precisionMode==='normal'?2:1;
+      rects.push({
+        x:Math.max(0,x0-pad)/pageData.viewport.width,
+        y:Math.max(0,y0-pad*.4)/pageData.viewport.height,
+        w:Math.min(pageData.viewport.width,x1-x0+pad*2)/pageData.viewport.width,
+        h:Math.min(pageData.viewport.height,y1-y0+pad*.8)/pageData.viewport.height,
+      });
+    }
+  }
+  return rects;
+}
+
+function resolveRectsForFinding(f,items,viewport,pageData){
+  const nativeRects=findRectsForFinding(f,items,viewport);
+  if(nativeRects.length) return nativeRects;
+  return ocrRectsForFinding(f,pageData);
+}
+
+function paintRedaction(ctx,coords,viewport){
+  const x=coords.x*viewport.width;
+  const y=coords.y*viewport.height;
+  const w=coords.w*viewport.width;
+  const h=coords.h*viewport.height;
+  ctx.save();
+  if(state.redactionMode==='white'){
+    ctx.fillStyle='#fff';
+    ctx.fillRect(x,y,w,h);
+    ctx.strokeStyle='#111';
+    ctx.lineWidth=Math.max(1,Math.min(2,h*.08));
+    ctx.strokeRect(x,y,w,h);
+    if(w>42 && h>11){
+      ctx.fillStyle='#111';
+      ctx.font=String(Math.max(8,Math.min(12,h*.52)))+'px Arial, sans-serif';
+      ctx.textAlign='center';
+      ctx.textBaseline='middle';
+      ctx.fillText('OMISSIS',x+w/2,y+h/2,Math.max(20,w-6));
+    }
+  }else{
+    ctx.fillStyle='#000';
+    ctx.fillRect(x,y,w,h);
+    if(state.redactionMode==='omissis' && w>42 && h>11){
+      ctx.fillStyle='#fff';
+      ctx.font=String(Math.max(8,Math.min(12,h*.52)))+'px Arial, sans-serif';
+      ctx.textAlign='center';
+      ctx.textBaseline='middle';
+      ctx.fillText('OMISSIS',x+w/2,y+h/2,Math.max(20,w-6));
+    }
+  }
+  ctx.restore();
+}
+
 function appendManualBox(overlay,coords,draft=false){
   const r=document.createElement('div');
-  r.className=`redaction-box manual-box${draft?' draft':''}`;
+  r.className=`redaction-box manual-box mode-${state.redactionMode}${draft?' draft':''}`;
   r.style.left=`${coords.x*100}%`;r.style.top=`${coords.y*100}%`;r.style.width=`${coords.w*100}%`;r.style.height=`${coords.h*100}%`;
   overlay.appendChild(r);
   return r;
