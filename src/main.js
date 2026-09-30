@@ -956,22 +956,63 @@ function addContextNames(page,text){
 }
 
 
+function signatoryLines(page){
+  const lines=[];
+  if(page.ocrWords?.length){
+    for(const words of ocrLines(page)){
+      const line=words.map(w=>w.text).join(' ').replace(/\s+/g,' ').trim();
+      if(line) lines.push(line);
+    }
+  }
+  if(page.items?.length){
+    for(const items of nativeLines(page)){
+      const line=items.map(i=>i.str).join(' ').replace(/\s+/g,' ').trim();
+      if(line) lines.push(line);
+    }
+  }
+  if(!lines.length && page.text) lines.push(page.text.replace(/\s+/g,' ').trim());
+  return [...new Set(lines)];
+}
+
+function validPersonCandidate(value){
+  const cleaned=cleanNameCell(value).replace(/^[,:;\-–]+|[,:;\-–]+$/g,'');
+  if(!cleaned || cleaned.length>80) return null;
+  const particles=new Set(['DE','DI','DA','DEL','DELLA','DELLO','LO','LA','VAN','VON']);
+  const tokens=cleaned.split(/\s+/).filter(Boolean);
+  if(tokens.length<1 || tokens.length>4) return null;
+  for(const token of tokens){
+    if(/^[A-ZÀ-ÖØ-Ý]\.?$/u.test(token)) continue;
+    if(particles.has(foldToken(token))) continue;
+    if(!isPersonWord(token)) return null;
+  }
+  return cleaned;
+}
+
 function addRoleBasedNames(page,text){
   if(!ENABLED_TYPES.name) return;
-  const rolePattern=/\b(?:Direttore|Dirigente|Responsabile|Medico|Referente|Primario)\b(?:\s+[A-Za-zÀ-ÿ.'’ -]{0,24})?\s+(?:(?:Dott\.?ssa?|Dott\.?|Dr\.?|Prof\.?|Prof\.ssa)\s*)?((?:[A-ZÀ-ÖØ-Ý]\.?\s*)?(?:(?:De|Di|Da|Del|Della|Dello|Lo|La|Van|Von)\s+)?[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]{2,}(?:\s+[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]{2,})?)/giu;
-  for(const m of text.matchAll(rolePattern)){
-    const value=cleanNameCell(m[1]);
-    const tokens=value.split(/\s+/).filter(Boolean);
-    const valid=tokens.length>=1 && tokens.length<=3 && tokens.every(t=>isPersonWord(t)||/^[A-Z]\.?[A-Za-zÀ-ÿ'’.-]{2,}$/u.test(t));
-    if(valid) addFinding('Nome','name',value,page.pageNumber);
+
+  for(const line of signatoryLines(page)){
+    // Titoli professionali tipici dei referti, anche con iniziale puntata o cognome composto.
+    const titled=/\b(?:Dott\.?ssa?|Dott\.?|Dr\.?|Prof\.?ssa?|Prof\.?)\s*([A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]*(?:\s+[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]*){0,3})\s*$/u.exec(line);
+    if(titled){
+      const value=validPersonCandidate(titled[1]);
+      if(value) addFinding('Nome','name',value,page.pageNumber);
+      continue;
+    }
+
+    // Ruoli senza titolo: "Il Dirigente Mario Rossi", "Responsabile Anna Verdi".
+    const roleOnly=/\b(?:Il\s+)?(?:Direttore|Dirigente|Responsabile|Medico|Referente|Primario)\s*:?\s*([A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]*(?:\s+[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]*){0,3})\s*$/u.exec(line);
+    if(roleOnly){
+      const value=validPersonCandidate(roleOnly[1]);
+      if(value) addFinding('Nome','name',value,page.pageNumber);
+    }
   }
 
-  // Forme compatte tipiche dei referti: "Dr L.Rinaldi", "Dott. M.Rossi", "Prof. A. Bianchi".
-  const compact=/\b(?:Dott\.?ssa?|Dott\.?|Dr\.?|Prof\.?|Prof\.ssa)\s*((?:[A-ZÀ-ÖØ-Ý]\.?\s*){0,2}(?:(?:De|Di|Da|Del|Della|Dello|Lo|La|Van|Von)\s+)?[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]{2,}(?:\s+[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]{2,})?)/gu;
+  // Fallback sul testo ricomposto per OCR che spezza ruolo e firma su righe diverse.
+  const compact=/\b(?:Dott\.?ssa?|Dott\.?|Dr\.?|Prof\.?ssa?|Prof\.?)\s*((?:[A-ZÀ-ÖØ-Ý]\.?\s*){0,2}(?:(?:De|Di|Da|Del|Della|Dello|Lo|La|Van|Von)\s+)?[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]{2,}(?:\s+[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]{2,})?)/gu;
   for(const m of text.matchAll(compact)){
-    const value=cleanNameCell(m[1]);
-    const folded=value.split(/\s+/).filter(Boolean);
-    if(folded.length && folded.length<=3 && !NAME_STOP_WORDS.has(foldToken(value))) addFinding('Nome','name',value,page.pageNumber);
+    const value=validPersonCandidate(m[1]);
+    if(value) addFinding('Nome','name',value,page.pageNumber);
   }
 }
 
