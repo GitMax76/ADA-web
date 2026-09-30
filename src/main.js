@@ -401,25 +401,25 @@ function render() {
           <small>È un preset tecnico modificabile e non sostituisce la valutazione dell'operatore.</small>
         </div>
         <div class="chips" id="typeChips">
-          ${chip('cf','Codice fiscale')}${chip('protocol','Protocollo / ID')}${chip('iban','IBAN')}${chip('email','Email / PEC')}${chip('phone','Telefono')}${chip('piva','P. IVA')}${chip('name','Nomi')}${chip('address','Indirizzi')}${chip('date','Date')}${chip('amount','Importi / valori')}
+          ${chip('cf','Codice fiscale')}${chip('personalid','ID personale')}${chip('birthdate','Data di nascita')}${chip('protocol','Protocollo / ID')}${chip('iban','IBAN')}${chip('email','Email / PEC')}${chip('phone','Telefono')}${chip('piva','P. IVA')}${chip('name','Nomi')}${chip('address','Indirizzi')}${chip('date','Altre date')}${chip('amount','Importi / valori')}
         </div>
         <div class="setting-row">
           <label><input type="checkbox" id="ocrToggle" ${state.ocrEnabled?'checked':''}> OCR locale per pagine scansite</label>
         </div>
         <div class="setting-row">
-          <label for="redactionMode">Tipo oscuramento</label>
+          <label for="redactionMode">Stile oscuramento</label>
           <select id="redactionMode">
-            <option value="black" ${state.redactionMode==='black'?'selected':''}>Blocco nero continuo</option>
-            <option value="redacted" ${state.redactionMode==='redacted'?'selected':''}>[REDACTED]</option>
-            <option value="stars" ${state.redactionMode==='stars'?'selected':''}>***</option>
+            <option value="black" ${state.redactionMode==='black'?'selected':''}>Nero compatto · consigliato</option>
+            <option value="omissis" ${state.redactionMode==='omissis'?'selected':''}>Nero + OMISSIS</option>
+            <option value="white" ${state.redactionMode==='white'?'selected':''}>Bianco + OMISSIS</option>
           </select>
         </div>
         <div class="setting-row">
-          <label for="precisionMode">Precisione rettangoli</label>
+          <label for="precisionMode">Margine oscuramento</label>
           <select id="precisionMode">
-            <option value="precise" ${state.precisionMode==='precise'?'selected':''}>Precisa</option>
-            <option value="normal" ${state.precisionMode==='normal'?'selected':''}>Normale</option>
-            <option value="wide" ${state.precisionMode==='wide'?'selected':''}>Ampia</option>
+            <option value="precise" ${state.precisionMode==='precise'?'selected':''}>Minimo · preciso</option>
+            <option value="normal" ${state.precisionMode==='normal'?'selected':''}>Standard</option>
+            <option value="wide" ${state.precisionMode==='wide'?'selected':''}>Ampio</option>
           </select>
         </div>
       </section>
@@ -466,13 +466,15 @@ function render() {
                 <option value="all">Tutti</option>
                 <option value="name">Nomi</option>
                 <option value="cf">Codici fiscali</option>
+                <option value="personalid">ID personali</option>
+                <option value="birthdate">Date di nascita</option>
                 <option value="protocol">Protocolli / identificativi</option>
                 <option value="email">Email / PEC</option>
                 <option value="phone">Telefoni</option>
                 <option value="iban">IBAN</option>
                 <option value="piva">P. IVA</option>
                 <option value="address">Indirizzi</option>
-                <option value="date">Date</option>
+                <option value="date">Altre date</option>
                 <option value="amount">Importi / valori</option>
                 <option value="manual">Aree manuali</option>
               </select>
