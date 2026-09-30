@@ -727,6 +727,9 @@ function progress(p,label){
 async function analyzeCurrent(){
   if(!state.files.length) return;
   state.abort=false; state.findings=[]; state.pages=[]; state.outputBytes=null; state.currentPage=1; state.totalPages=0; state.manualMode=false; state.adjustMode=false;
+  state.analysisWarnings=[]; state.pdfType='unknown'; state.currentStage='analysis';
+  updateWizard(3);
+  recordDiag('analysis_start','ok',{stage:'analysis',ocrEnabled:state.ocrEnabled,filesCount:state.files.length});
   setBusy(true,'Lettura PDF…'); progress(2);
   try{
     const file=state.files[state.currentIndex];
@@ -734,6 +737,7 @@ async function analyzeCurrent(){
     const loadingTask=pdfjsLib.getDocument({data:state.pdfBytes.slice()});
     const pdf=await loadingTask.promise;
     state.totalPages=pdf.numPages;
+    recordDiag('pdf_opened','ok',{stage:'analysis',pages:pdf.numPages,fileSizeMb:Math.round((file.size/1024/1024)*2)/2,ocrEnabled:state.ocrEnabled});
     updatePreviewControls();
     for(let p=1;p<=pdf.numPages;p++){
       if(state.abort) throw new Error('Operazione annullata');
@@ -744,32 +748,59 @@ async function analyzeCurrent(){
       const text=items.map(i=>i.str).join(' ');
       const pageData={pageNumber:p,viewport,items,text,ocrText:'',ocrWords:[]};
 
-      if(text.trim().length<25 && state.ocrEnabled){
-        progress(((p-1)/pdf.numPages)*70+5,`OCR locale pagina ${p}/${pdf.numPages}…`);
-        const canvas=document.createElement('canvas');
-        const ctx=canvas.getContext('2d',{willReadFrequently:true});
-        canvas.width=Math.ceil(viewport.width); canvas.height=Math.ceil(viewport.height);
-        await page.render({canvasContext:ctx,viewport}).promise;
-        if(!state.ocrWorker){
-          state.ocrWorker=await createWorker('ita',1,{logger:m=>{ if(m.progress) progress(Math.min(75,5+m.progress*60),`OCR: ${m.status}`); }});
+      if(text.trim().length<25){
+        if(state.ocrEnabled){
+          updateAnalysisHint('Documento rasterizzato o scansito rilevato: A.D.A. sta usando l’OCR locale. Può richiedere più tempo.','info');
+          progress(((p-1)/pdf.numPages)*70+5,`OCR locale pagina ${p}/${pdf.numPages}…`);
+          const canvas=document.createElement('canvas');
+          const ctx=canvas.getContext('2d',{willReadFrequently:true});
+          canvas.width=Math.ceil(viewport.width); canvas.height=Math.ceil(viewport.height);
+          await page.render({canvasContext:ctx,viewport}).promise;
+          try{
+            if(!state.ocrWorker){
+              state.ocrWorker=await withTimeout(createWorker('ita',1,{logger:m=>{ if(m.progress) progress(Math.min(75,5+m.progress*60),`OCR: ${m.status}`); }}),OCR_INIT_TIMEOUT,'OCR_INIT_TIMEOUT');
+            }
+            const r=await withTimeout(state.ocrWorker.recognize(canvas,{}, { blocks:true }),OCR_PAGE_TIMEOUT,'OCR_PAGE_TIMEOUT');
+            pageData.ocrText=r.data.text||'';
+            pageData.ocrWords=extractOcrWords(r.data);
+            recordDiag('ocr_page','ok',{stage:'ocr',page:p,pages:pdf.numPages});
+          }catch(ocrErr){
+            const code=safeErrorCode('ocr',ocrErr);
+            state.analysisWarnings.push(`OCR pagina ${p}: ${code}`);
+            recordDiag('ocr_page','error',{stage:'ocr',page:p,pages:pdf.numPages,code});
+            try{await state.ocrWorker?.terminate();}catch{}
+            state.ocrWorker=null;
+            updateAnalysisHint('L’OCR ha impiegato troppo tempo o ha incontrato un problema su una pagina. L’analisi prosegue e potrai verificare manualmente.','warning');
+          }
+        }else{
+          state.analysisWarnings.push(`Pagina ${p} senza testo: OCR disattivato`);
         }
-        const r=await state.ocrWorker.recognize(canvas,{}, { blocks:true });
-        pageData.ocrText=r.data.text||'';
-        pageData.ocrWords=extractOcrWords(r.data);
       }
       state.pages.push(pageData);
       detectPage(pageData);
       progress(5+(p/pdf.numPages)*75,`Analisi pagina ${p}/${pdf.numPages}…`);
     }
+    const textualPages=state.pages.filter(pg=>pg.text.trim().length>=25).length;
+    state.pdfType=textualPages===0?'raster/scansionato':textualPages===state.pages.length?'testuale':'misto';
+    recordDiag('pdf_classified','ok',{stage:'analysis',pages:pdf.numPages,pdfType:state.pdfType,ocrEnabled:state.ocrEnabled});
     dedupeFindings();
     renderFindings();
     await renderPreview(1);
     await renderThumbnailStrip();
     document.querySelector('#exportBtn').disabled=state.findings.length===0;
     updatePreviewControls();
+    state.currentStage='review';
+    updateWizard(4);
+    const warningText=state.analysisWarnings.length?` • ${state.analysisWarnings.length} avviso/i`:'';
+    updateAnalysisHint(`Analisi completata: PDF ${state.pdfType}. Controlla sempre i rilevamenti prima di esportare.${warningText}`,state.analysisWarnings.length?'warning':'success');
+    recordDiag('analysis_complete','ok',{stage:'review',pages:pdf.numPages,pdfType:state.pdfType,ocrEnabled:state.ocrEnabled,findings:state.findings.length});
     progress(100,`Completato • ${state.findings.length} rilevamenti`);
   }catch(err){
-    progress(100,err.message||'Errore');
+    state.currentStage='error';
+    const code=safeErrorCode('analysis',err);
+    recordDiag('analysis_failed','error',{stage:'analysis',code,ocrEnabled:state.ocrEnabled,pages:state.totalPages||0});
+    updateAnalysisHint('L’analisi non è stata completata. Puoi riprovare oppure usare “Segnala un problema” per condividere la diagnostica tecnica.','error');
+    progress(100,err?.code==='OCR_PAGE_TIMEOUT'?'OCR oltre il tempo massimo':(err.message||'Errore'));
   }finally{
     setBusy(false);
   }
