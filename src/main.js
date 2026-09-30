@@ -66,6 +66,191 @@ function escapeHtml(s='') {
   return s.replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;'}[c]));
 }
 
+
+const APP_VERSION='0.3.0-beta';
+const BUG_REPO_URL='https://github.com/GitMax76/ADA-web/issues/new';
+const DIAG_MAX=20;
+const OCR_INIT_TIMEOUT=60000;
+const OCR_PAGE_TIMEOUT=90000;
+
+const PROFILES={
+  standard:{label:'Standard',types:{cf:true,protocol:true,iban:true,email:true,piva:true,phone:true,name:true,address:true,date:false,amount:false}},
+  transparency:{label:'Trasparenza / Pubblicazione',types:{cf:true,protocol:true,iban:true,email:true,piva:true,phone:true,name:true,address:true,date:true,amount:false}},
+  ai:{label:'Dataset / AI / Ricerca',types:{cf:true,protocol:true,iban:true,email:true,piva:true,phone:true,name:true,address:true,date:true,amount:true}},
+};
+
+function environmentSummary(){
+  const ua=navigator.userAgent||'';
+  const browser=/Edg\//.test(ua)?'Edge':/Firefox\//.test(ua)?'Firefox':/Chrome\//.test(ua)?'Chrome':/Safari\//.test(ua)?'Safari':'Altro';
+  const os=/Windows/i.test(ua)?'Windows':/Android/i.test(ua)?'Android':/iPhone|iPad/i.test(ua)?'iOS/iPadOS':/Mac OS/i.test(ua)?'macOS':/Linux/i.test(ua)?'Linux':'Altro';
+  const device=(navigator.maxTouchPoints||0)>0 && Math.min(screen.width,screen.height)<900?'mobile/tablet':'desktop';
+  return {browser,os,device};
+}
+
+function safeErrorCode(stage,err){
+  if(err && err.code) return String(err.code).replace(/[^A-Z0-9_-]/gi,'_').slice(0,60);
+  const name=String((err&&err.name)||'Error').replace(/[^A-Z0-9_-]/gi,'_').slice(0,40);
+  return String(stage||'UNKNOWN').toUpperCase().replace(/[^A-Z0-9_-]/g,'_')+'_'+name.toUpperCase();
+}
+
+function recordDiag(event,status='ok',details={}){
+  const allowed={};
+  for(const key of ['stage','code','page','pages','fileSizeMb','pdfType','ocrEnabled','findings','filesCount','warning']){
+    if(details[key]!==undefined) allowed[key]=details[key];
+  }
+  state.diagEvents.push(Object.assign({
+    at:new Date().toISOString(),
+    event:String(event).slice(0,60),
+    status:String(status).slice(0,20),
+  },allowed));
+  if(state.diagEvents.length>DIAG_MAX) state.diagEvents.splice(0,state.diagEvents.length-DIAG_MAX);
+}
+
+function diagnosticSnapshot(){
+  const file=state.files[state.currentIndex];
+  return {
+    app:'A.D.A. Web',
+    version:APP_VERSION,
+    generatedAt:new Date().toISOString(),
+    environment:environmentSummary(),
+    session:{
+      stage:state.currentStage,
+      filesCount:state.files.length,
+      pages:state.totalPages||0,
+      fileSizeMb:file?Math.round((file.size/1024/1024)*2)/2:null,
+      pdfType:state.pdfType,
+      ocrEnabled:state.ocrEnabled,
+      findings:state.findings.length,
+    },
+    events:state.diagEvents.slice(-DIAG_MAX),
+    privacy:'Nessun contenuto del documento, nome file, percorso locale o dato rilevato è incluso.',
+  };
+}
+
+function updateAnalysisHint(message='',kind='info'){
+  const el=document.querySelector('#analysisHint');
+  if(!el) return;
+  el.textContent=message;
+  el.className='analysis-hint'+(message?' show':'')+(kind?' '+kind:'');
+}
+
+function updateWizard(step){
+  state.wizardStep=Math.max(state.wizardStep||1,step||1);
+  document.querySelectorAll('[data-wizard-step]').forEach(el=>{
+    const n=Number(el.dataset.wizardStep);
+    el.classList.toggle('done',n<state.wizardStep);
+    el.classList.toggle('active',n===state.wizardStep);
+  });
+}
+
+function syncTypeChips(){
+  document.querySelectorAll('[data-type]').forEach(i=>{
+    i.checked=!!ENABLED_TYPES[i.dataset.type];
+    if(i.closest('.chip')) i.closest('.chip').classList.toggle('on',i.checked);
+  });
+}
+
+function applyProfile(name){
+  if(!PROFILES[name]) return;
+  Object.assign(ENABLED_TYPES,PROFILES[name].types);
+  syncTypeChips();
+}
+
+function withTimeout(promise,ms,code){
+  let timer;
+  const timeout=new Promise((_,reject)=>{
+    timer=setTimeout(()=>{
+      const e=new Error(code);
+      e.code=code;
+      reject(e);
+    },ms);
+  });
+  return Promise.race([promise,timeout]).finally(()=>clearTimeout(timer));
+}
+
+function renderBugModal(){
+  return [
+    '<div class="modal-backdrop hidden" id="bugModal" role="dialog" aria-modal="true" aria-labelledby="bugModalTitle">',
+      '<div class="policy-modal bug-modal">',
+        '<div class="policy-modal-head">',
+          '<div><div class="policy-kicker">Assistenza</div><h2 id="bugModalTitle">Segnala un problema</h2><p>Descrivi cosa è successo. A.D.A. prepara solo informazioni tecniche non contenenti il documento.</p></div>',
+          '<button class="ghost compact" id="bugCloseBtn" type="button" aria-label="Chiudi">×</button>',
+        '</div>',
+        '<label class="bug-field"><span>Tipo di problema</span><select id="bugCategory">',
+          '<option>Caricamento documento</option>',
+          '<option>Analisi bloccata o molto lenta</option>',
+          '<option>Dato non rilevato</option>',
+          '<option>Falso positivo / oscuramento errato</option>',
+          '<option>Anteprima o navigazione</option>',
+          '<option>Download / esportazione</option>',
+          '<option>Altro</option>',
+        '</select></label>',
+        '<label class="bug-field"><span>Descrizione facoltativa</span><textarea id="bugDescription" rows="4" placeholder="Spiega in poche parole cosa stavi facendo. Non inserire nomi, codici fiscali o contenuti del documento."></textarea></label>',
+        '<div class="bug-privacy">🔒 Il report non include file, nome del file, testo del PDF, dati rilevati o percorsi locali.</div>',
+        '<details class="bug-diagnostics"><summary>Controlla le informazioni diagnostiche</summary><pre id="bugDiagnosticsPreview"></pre></details>',
+        '<div class="policy-actions bug-actions">',
+          '<button class="ghost" id="bugCopyBtn" type="button">Copia diagnostica</button>',
+          '<button class="ghost" id="bugDownloadBtn" type="button">Scarica report</button>',
+          '<button class="primary" id="bugIssueBtn" type="button">Apri segnalazione GitHub</button>',
+        '</div>',
+      '</div>',
+    '</div>'
+  ].join('');
+}
+
+function bindBugModal(){
+  const modal=document.querySelector('#bugModal');
+  const open=document.querySelector('#bugReportBtn');
+  if(!modal||!open) return;
+  const refresh=()=>{
+    const pre=modal.querySelector('#bugDiagnosticsPreview');
+    if(pre) pre.textContent=JSON.stringify(diagnosticSnapshot(),null,2);
+  };
+  const close=()=>{
+    modal.classList.add('hidden');
+    document.body.classList.remove('modal-open');
+  };
+  open.onclick=()=>{
+    refresh();
+    modal.classList.remove('hidden');
+    document.body.classList.add('modal-open');
+  };
+  modal.querySelector('#bugCloseBtn').onclick=close;
+  modal.addEventListener('click',e=>{if(e.target===modal) close();});
+  modal.querySelector('#bugCopyBtn').onclick=async()=>{
+    refresh();
+    try{
+      await navigator.clipboard.writeText(modal.querySelector('#bugDiagnosticsPreview').textContent);
+      modal.querySelector('#bugCopyBtn').textContent='Copiato ✓';
+      setTimeout(()=>modal.querySelector('#bugCopyBtn').textContent='Copia diagnostica',1400);
+    }catch{}
+  };
+  modal.querySelector('#bugDownloadBtn').onclick=()=>{
+    refresh();
+    const category=modal.querySelector('#bugCategory').value;
+    const desc=modal.querySelector('#bugDescription').value.trim();
+    const report='A.D.A. Web '+APP_VERSION+'\nCategoria: '+category+'\nDescrizione: '+(desc||'(non fornita)')+'\n\nDIAGNOSTICA\n'+modal.querySelector('#bugDiagnosticsPreview').textContent+'\n';
+    const url=URL.createObjectURL(new Blob([report],{type:'text/plain;charset=utf-8'}));
+    const a=document.createElement('a');
+    a.href=url;
+    a.download='ADA_bug_report_'+new Date().toISOString().slice(0,10)+'.txt';
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+  };
+  modal.querySelector('#bugIssueBtn').onclick=()=>{
+    refresh();
+    const category=modal.querySelector('#bugCategory').value;
+    const desc=modal.querySelector('#bugDescription').value.trim();
+    const diag=modal.querySelector('#bugDiagnosticsPreview').textContent;
+    const title='[ADA BUG] '+category+' · '+APP_VERSION;
+    const body='## Segnalazione utente\n\n**Categoria:** '+category+'\n\n**Descrizione:**\n'+(desc||'_Non fornita_')+'\n\n> Non inserire dati personali o contenuti del documento.\n\n## Diagnostica tecnica sanitizzata\n\n'+diag+'\n';
+    window.open(BUG_REPO_URL+'?title='+encodeURIComponent(title)+'&body='+encodeURIComponent(body),'_blank','noopener,noreferrer');
+  };
+}
+
+window.addEventListener('error',e=>recordDiag('global_error','error',{stage:state.currentStage,code:safeErrorCode(state.currentStage,e.error||e)}));
+window.addEventListener('unhandledrejection',e=>recordDiag('unhandled_rejection','error',{stage:state.currentStage,code:safeErrorCode(state.currentStage,e.reason)}));
+
 const POLICY_ACCEPT_KEY = 'ada_web_policy_accept_v016';
 
 function policiesAccepted(){
