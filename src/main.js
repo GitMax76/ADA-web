@@ -50,16 +50,14 @@ const PATTERNS = [
   { type: 'IBAN', key: 'iban', re: /\bIT\s?\d{2}\s?[A-Z]\s?\d{5}\s?\d{5}\s?[A-Z0-9]{12}\b/gi },
   { type: 'Email / PEC', key: 'email', re: /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi },
   { type: 'P. IVA', key: 'piva', re: /\b(?:IT\s*)?\d{11}\b/g },
-  // Evita di interpretare come telefono sequenze incorporate in protocolli/codici alfanumerici.
   { type: 'Telefono', key: 'phone', re: /(?<![A-Z0-9-])(?:\+39\s?)?(?:0\d{1,4}[\s./-]?\d{5,8}|3\d{2}[\s./-]?\d{6,7})(?![A-Z0-9-])/gi },
   { type: 'Data', key: 'date', re: /\b(?:0?[1-9]|[12]\d|3[01])[\/.-](?:0?[1-9]|1[0-2])[\/.-](?:19|20)\d{2}\b/g },
-  // Opzionale: utile per documenti economici/ISEE quando la finalità richiede di rimuovere anche i valori.
   { type: 'Importo / valore', key: 'amount', re: /(?<![\d.,])(?:[+-]\s*)?\d{1,3}(?:\.\d{3})*,\d{2}(?![\d.,])/g },
 ];
 
 const ENABLED_TYPES = {
-  cf: true, protocol: true, iban: true, email: true, piva: true, phone: true,
-  date: false, amount: false, name: true, address: true
+  cf: true, personalid: true, birthdate: true, protocol: true, iban: true, email: true,
+  piva: true, phone: true, date: false, amount: false, name: true, address: true
 };
 
 function escapeHtml(s='') {
@@ -67,16 +65,16 @@ function escapeHtml(s='') {
 }
 
 
-const APP_VERSION='0.3.0-beta';
+const APP_VERSION='0.3.1-beta';
 const BUG_REPO_URL='https://github.com/GitMax76/ADA-web/issues/new';
 const DIAG_MAX=20;
 const OCR_INIT_TIMEOUT=60000;
 const OCR_PAGE_TIMEOUT=90000;
 
 const PROFILES={
-  standard:{label:'Standard',types:{cf:true,protocol:true,iban:true,email:true,piva:true,phone:true,name:true,address:true,date:false,amount:false}},
-  transparency:{label:'Trasparenza / Pubblicazione',types:{cf:true,protocol:true,iban:true,email:true,piva:true,phone:true,name:true,address:true,date:true,amount:false}},
-  ai:{label:'Dataset / AI / Ricerca',types:{cf:true,protocol:true,iban:true,email:true,piva:true,phone:true,name:true,address:true,date:true,amount:true}},
+  standard:{label:'Standard',types:{cf:true,personalid:true,birthdate:true,protocol:true,iban:true,email:true,piva:true,phone:true,name:true,address:true,date:false,amount:false}},
+  transparency:{label:'Trasparenza / Pubblicazione',types:{cf:true,personalid:true,birthdate:true,protocol:true,iban:true,email:true,piva:true,phone:true,name:true,address:true,date:true,amount:false}},
+  ai:{label:'Dataset / AI / Ricerca',types:{cf:true,personalid:true,birthdate:true,protocol:true,iban:true,email:true,piva:true,phone:true,name:true,address:true,date:true,amount:true}},
 };
 
 function environmentSummary(){
@@ -338,7 +336,7 @@ function bindPolicyModal(){
     status.textContent = 'Per utilizzare A.D.A. Web è necessario accettare le condizioni. Puoi chiudere questa scheda del browser.';
   });
   accept.addEventListener('click', () => {
-    try { localStorage.setItem(POLICY_ACCEPT_KEY, JSON.stringify({ acceptedAt: new Date().toISOString(), version: '0.3.0-beta' })); } catch {}
+    try { localStorage.setItem(POLICY_ACCEPT_KEY, JSON.stringify({ acceptedAt: new Date().toISOString(), version: '0.3.1-beta' })); } catch {}
     modal.remove();
     document.body.classList.remove('modal-open');
   });
@@ -353,7 +351,7 @@ function render() {
           <img class="app-icon" src="${import.meta.env.BASE_URL}ada-icon.png" alt="Icona A.D.A.">
         </div>
         <div class="brand-copy">
-          <div class="eyebrow">A.D.A. WEB • 0.3.0-beta</div>
+          <div class="eyebrow">A.D.A. WEB • 0.3.1-beta</div>
           <h1>A.D.A. <span>Anonimizzatore Documenti Autonomo</span></h1>
           <div class="institution-credit">Tool sviluppato dalla Soprintendenza ABAP per le Province di Salerno e Avellino, Ufficio Informatico.</div>
         </div>
