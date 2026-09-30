@@ -1,7 +1,19 @@
-# A.D.A. Web — 0.2.0-beta
+# A.D.A. Web — 0.3.0-beta
 Anonimizzatore Documenti Autonomo. Release **GitHub Pages Ready**, derivata dal codice originale **0.1.9-beta No Nested Scroll**.
 
 **App:** https://GitMax76.github.io/ADA-web/
+
+## Novità 0.3.0-beta — Guided Flow & Diagnostics
+
+- Percorso guidato in 5 passaggi: **Carica → Configura → Rileva → Verifica → Scarica**.
+- Caricamento multiplo e selezione cartella su browser desktop compatibili.
+- Profili tecnici modificabili: **Standard**, **Trasparenza / Pubblicazione**, **Dataset / AI / Ricerca**. Sono preset operativi, non decisioni giuridiche.
+- Diagnostica locale circolare delle ultime operazioni tecniche, senza salvare contenuto del documento, nome file, percorso locale o dati rilevati.
+- Intercettazione di errori JavaScript, parsing, OCR ed esportazione con codici tecnici sanitizzati.
+- Riconoscimento dei PDF rasterizzati/scansionati e dei PDF già anonimizzati; OCR locale controllato con watchdog per evitare attese indefinite.
+- Pulsante **Segnala un problema** con report tecnico visualizzabile, copiabile o scaricabile e apertura di una GitHub Issue precompilata.
+- Nessun token GitHub nel frontend e nessun invio automatico di documenti o contenuti sensibili.
+- Workflow GitHub separato che genera un report riepilogativo ogni 15 giorni dalle issue con titolo `[ADA BUG]`.
 
 ## Funzioni mantenute
 - Coda PDF multipla, analisi di un documento alla volta, anteprima multipagina e zoom.
@@ -47,7 +59,7 @@ package-lock.json fissa le dipendenze; la CI usa npm ci. PDF.js resta fissato al
 
 ## PWA e aggiornamenti
 Il manifest e sw.js sono generati da vite-plugin-pwa. Icone 192/512, maskable e Apple derivano dall'icona originale.
-La precache include asset con revisione, file .mjs e worker PDF. Il nome della cache contiene lo scope e la versione **0.2.0-beta**; l'attivazione elimina solo cache precedenti appartenenti a questa app.
+La precache include asset con revisione, file .mjs e worker PDF. Il nome della cache contiene lo scope e la versione **0.3.0-beta**; l'attivazione elimina solo cache precedenti appartenenti a questa app.
 Non vengono intercettati o memorizzati documenti, blob o richieste arbitrarie.
 Gli aggiornamenti attendono la chiusura di tutte le schede/finestre A.D.A., senza ricaricare una sessione in corso. Per applicare una nuova release, chiudere tutte le istanze e riaprire.
 Aggiornare la versione anche in src/sw.js a ogni release.
