@@ -65,7 +65,7 @@ function escapeHtml(s='') {
 }
 
 
-const APP_VERSION='0.3.1-beta';
+const APP_VERSION='0.3.2-beta';
 const BUG_REPO_URL='https://github.com/GitMax76/ADA-web/issues/new';
 const DIAG_MAX=20;
 const OCR_INIT_TIMEOUT=60000;
@@ -336,7 +336,7 @@ function bindPolicyModal(){
     status.textContent = 'Per utilizzare A.D.A. Web è necessario accettare le condizioni. Puoi chiudere questa scheda del browser.';
   });
   accept.addEventListener('click', () => {
-    try { localStorage.setItem(POLICY_ACCEPT_KEY, JSON.stringify({ acceptedAt: new Date().toISOString(), version: '0.3.1-beta' })); } catch {}
+    try { localStorage.setItem(POLICY_ACCEPT_KEY, JSON.stringify({ acceptedAt: new Date().toISOString(), version: '0.3.2-beta' })); } catch {}
     modal.remove();
     document.body.classList.remove('modal-open');
   });
@@ -351,7 +351,7 @@ function render() {
           <img class="app-icon" src="${import.meta.env.BASE_URL}ada-icon.png" alt="Icona A.D.A.">
         </div>
         <div class="brand-copy">
-          <div class="eyebrow">A.D.A. WEB • 0.3.1-beta</div>
+          <div class="eyebrow">A.D.A. WEB • 0.3.2-beta</div>
           <h1>A.D.A. <span>Anonimizzatore Documenti Autonomo</span></h1>
           <div class="institution-credit">Tool sviluppato dalla Soprintendenza ABAP per le Province di Salerno e Avellino, Ufficio Informatico.</div>
         </div>
@@ -409,10 +409,11 @@ function render() {
         <div class="setting-row">
           <label for="redactionMode">Stile oscuramento</label>
           <select id="redactionMode">
-            <option value="black" ${state.redactionMode==='black'?'selected':''}>Nero compatto · consigliato</option>
+            <option value="black" ${state.redactionMode==='black'?'selected':''}>Nero compatto</option>
             <option value="omissis" ${state.redactionMode==='omissis'?'selected':''}>Nero + OMISSIS</option>
             <option value="white" ${state.redactionMode==='white'?'selected':''}>Bianco + OMISSIS</option>
           </select>
+          <small class="setting-help">Consigliato: oscuramento pieno, semplice e ben leggibile in anteprima.</small>
         </div>
         <div class="setting-row">
           <label for="precisionMode">Margine oscuramento</label>
@@ -954,6 +955,26 @@ function addContextNames(page,text){
 
 }
 
+
+function addRoleBasedNames(page,text){
+  if(!ENABLED_TYPES.name) return;
+  const rolePattern=/\b(?:Direttore|Dirigente|Responsabile|Medico|Referente|Primario)\b(?:\s+[A-Za-zÀ-ÿ.'’ -]{0,24})?\s+(?:(?:Dott\.?ssa?|Dott\.?|Dr\.?|Prof\.?|Prof\.ssa)\s*)?((?:[A-ZÀ-ÖØ-Ý]\.?\s*)?[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]{2,}(?:\s+[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]{2,})?)/giu;
+  for(const m of text.matchAll(rolePattern)){
+    const value=cleanNameCell(m[1]);
+    const tokens=value.split(/\s+/).filter(Boolean);
+    const valid=tokens.length>=1 && tokens.length<=3 && tokens.every(t=>isPersonWord(t)||/^[A-Z]\.?[A-Za-zÀ-ÿ'’.-]{2,}$/u.test(t));
+    if(valid) addFinding('Nome','name',value,page.pageNumber);
+  }
+
+  // Forme compatte tipiche dei referti: "Dr L.Rinaldi", "Dott. M.Rossi", "Prof. A. Bianchi".
+  const compact=/\b(?:Dott\.?ssa?|Dott\.?|Dr\.?|Prof\.?|Prof\.ssa)\s*((?:[A-ZÀ-ÖØ-Ý]\.?\s*){0,2}[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]{2,})/gu;
+  for(const m of text.matchAll(compact)){
+    const value=cleanNameCell(m[1]);
+    const folded=value.split(/\s+/).filter(Boolean);
+    if(folded.length && folded.length<=3 && !NAME_STOP_WORDS.has(foldToken(value))) addFinding('Nome','name',value,page.pageNumber);
+  }
+}
+
 function addContextualIdentifiers(page,text){
   if(ENABLED_TYPES.personalid){
     const idPatterns=[
@@ -1037,6 +1058,7 @@ function detectPage(page){
   addStructuredNames(page);
   addOcrIdentityNames(page);
   addContextNames(page,text);
+  addRoleBasedNames(page,text);
   addOcrAddresses(page);
   addNativeAddresses(page);
 }
