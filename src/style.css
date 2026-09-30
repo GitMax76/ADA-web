@@ -314,3 +314,5 @@ body.ada-compact-review .remove-finding{width:40px;height:40px;font-size:22px}
   .wizard-step b{display:none}.wizard-step{min-height:38px}.wizard-step span{width:26px;height:26px}
   .bug-actions{flex-direction:column}.bug-actions button{width:100%}
 }
+
+.modal-backdrop.hidden{display:none!important}
