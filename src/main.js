@@ -37,6 +37,11 @@ const state = {
   previewZoom: 1,
   filters: { type: 'all', status: 'all', page: 'all', search: '' },
   mobileView: 'preview',
+  wizardStep: 1,
+  pdfType: 'unknown',
+  currentStage: 'idle',
+  analysisWarnings: [],
+  diagEvents: [],
 };
 
 const PATTERNS = [
