@@ -1,0 +1,76 @@
+name: A.D.A. Bug Report Quindicinale
+
+on:
+  schedule:
+    - cron: '15 7 1,16 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Genera report bug degli ultimi 15 giorni
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const days = 15;
+            const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+            const date = new Date().toISOString().slice(0, 10);
+            const query = `repo:${owner}/${repo} is:issue in:title "[ADA BUG]" created:>=${since.toISOString().slice(0,10)}`;
+            const result = await github.rest.search.issuesAndPullRequests({ q: query, per_page: 100 });
+            const bugs = result.data.items.filter(i => !i.pull_request);
+
+            const categories = {};
+            for (const bug of bugs) {
+              const match = bug.title.match(/^\[ADA BUG\]\s*(.*?)\s*·/);
+              const category = match?.[1]?.trim() || 'Altro';
+              categories[category] = (categories[category] || 0) + 1;
+            }
+
+            const rows = Object.entries(categories)
+              .sort((a,b) => b[1]-a[1])
+              .map(([name,count]) => `| ${name} | ${count} |`)
+              .join('\n') || '| Nessuna segnalazione | 0 |';
+
+            const details = bugs.length
+              ? bugs.map(i => `- #${i.number} — ${i.title.replace(/^\[ADA BUG\]\s*/, '')} — **${i.state}**`).join('\n')
+              : '- Nessuna segnalazione nel periodo.';
+
+            const openCount = bugs.filter(i => i.state === 'open').length;
+            const closedCount = bugs.filter(i => i.state === 'closed').length;
+            const reportTitle = `[ADA REPORT] ${date} — ultimi ${days} giorni`;
+            const body = [
+              '# A.D.A. Web — report quindicinale bug',
+              '',
+              `Periodo analizzato: **${since.toISOString().slice(0,10)} → ${date}**`,
+              '',
+              `Segnalazioni totali: **${bugs.length}** · aperte: **${openCount}** · chiuse: **${closedCount}**`,
+              '',
+              '## Per categoria',
+              '',
+              '| Categoria | Segnalazioni |',
+              '| --- | ---: |',
+              rows,
+              '',
+              '## Segnalazioni',
+              '',
+              details,
+              '',
+              '> Report generato automaticamente dalle issue il cui titolo inizia con `[ADA BUG]`. I documenti degli utenti non vengono raccolti dal report.',
+            ].join('\n');
+
+            const existing = await github.paginate(github.rest.issues.listForRepo, {
+              owner, repo, state: 'all', per_page: 100
+            });
+            const same = existing.find(i => !i.pull_request && i.title === reportTitle);
+            if (same) {
+              await github.rest.issues.update({ owner, repo, issue_number: same.number, body });
+            } else {
+              await github.rest.issues.create({ owner, repo, title: reportTitle, body });
+            }
