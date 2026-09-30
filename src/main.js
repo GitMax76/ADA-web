@@ -135,7 +135,7 @@ function updateAnalysisHint(message='',kind='info'){
 }
 
 function updateWizard(step){
-  state.wizardStep=Math.max(state.wizardStep||1,step||1);
+  state.wizardStep=Math.max(1,Math.min(5,step||1));
   document.querySelectorAll('[data-wizard-step]').forEach(el=>{
     const n=Number(el.dataset.wizardStep);
     el.classList.toggle('done',n<state.wizardStep);
