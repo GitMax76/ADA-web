@@ -588,8 +588,16 @@ function chip(key,label){
 
 function bind(){
   const fileInput = document.querySelector('#fileInput');
+  const folderInput = document.querySelector('#folderInput');
   document.querySelector('#chooseBtn').onclick = () => fileInput.click();
   fileInput.onchange = e => addFiles([...e.target.files]);
+  const folderBtn=document.querySelector('#folderBtn');
+  if(folderBtn && folderInput){
+    const supported='webkitdirectory' in folderInput;
+    folderBtn.hidden=!supported;
+    folderBtn.onclick=()=>folderInput.click();
+    folderInput.onchange=e=>addFiles([...e.target.files].filter(f=>f.type==='application/pdf'||/\.pdf$/i.test(f.name)));
+  }
   const dz = document.querySelector('#dropzone');
   ['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add('dragging')}));
   ['dragleave','drop'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove('dragging')}));
@@ -598,7 +606,13 @@ function bind(){
   document.querySelectorAll('[data-type]').forEach(i=>i.onchange=e=>{
     ENABLED_TYPES[e.target.dataset.type]=e.target.checked;
     e.target.closest('.chip').classList.toggle('on',e.target.checked);
+    const profile=document.querySelector('#profileSelect');
+    if(profile) profile.value='custom';
   });
+  const profileSelect=document.querySelector('#profileSelect');
+  if(profileSelect){
+    profileSelect.onchange=e=>{ if(e.target.value!=='custom') applyProfile(e.target.value); };
+  }
   document.querySelector('#ocrToggle').onchange=e=>state.ocrEnabled=e.target.checked;
   document.querySelector('#redactionMode').onchange=e=>state.redactionMode=e.target.value;
   document.querySelector('#precisionMode').onchange=e=>{state.precisionMode=e.target.value; if(state.pdfBytes) renderPreview(state.currentPage);};
@@ -672,15 +686,22 @@ function bind(){
     renderFindings();
   };
   bindPolicyModal();
+  bindBugModal();
   updateQueue();
   updatePreviewControls();
+  updateWizard(state.wizardStep||1);
 }
 
 function addFiles(files){
+  files=files.filter(f=>f.type==='application/pdf'||/\.pdf$/i.test(f.name));
   if(!files.length) return;
   state.files.push(...files);
-  state.currentIndex = state.files.length- files.length;
+  state.currentIndex = state.files.length-files.length;
+  state.currentStage='loaded';
+  recordDiag('files_loaded','ok',{stage:'loaded',filesCount:state.files.length,fileSizeMb:Math.round((files[0].size/1024/1024)*2)/2});
   updateQueue();
+  updateWizard(2);
+  updateAnalysisHint('Documenti caricati. Scegli i dati da rilevare e avvia l’analisi quando sei pronto.','info');
 }
 
 function updateQueue(){
