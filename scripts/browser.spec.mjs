@@ -142,3 +142,75 @@ test('medical-style identity fields are detected without treating clinical label
   await page.locator('#redactionMode').selectOption('white');
   await expect(page.locator('.preview .redaction-box.mode-white').first()).toBeVisible();
 });
+
+
+test('medical footer signatories and redaction selector remain robust and readable', async ({ page }) => {
+  await page.goto('/ADA-web/');
+  for (const section of await page.locator('[data-policy-section] summary').all()) await section.click();
+  await page.locator('#policyConfirm').check();
+  await page.locator('#policyAcceptBtn').click();
+
+  const pdf = await PDFDocument.create();
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const p = pdf.addPage([595, 842]);
+
+  const lines = [
+    ['A.O.U. SERVIZIO IMMUNOEMATOLOGIA TRASFUSIONALE', 790, bold],
+    ['Direttore Dott. Francesco Annarumma', 760, font],
+    ['Cod Donatore: 220335', 720, font],
+    ['Nato il 14/02/1976', 695, font],
+    ['RSSMRA76B14H703X', 670, font],
+    ['ROSSI MARIO', 645, bold],
+    ['Via: GELSO n 12/A', 620, font],
+    ['84100 - SALERNO (SA)', 595, bold],
+    ['Gruppo Sanguigno', 530, font],
+    ['Fattore Rh', 505, font],
+    ['Test di Coombs Indiretto', 480, font],
+    ['Proteine Totali', 455, font],
+    ['Il Dirigente', 92, font],
+    ['Dr L.Rinaldi', 72, bold],
+  ];
+  for (const [txt,y,usedFont] of lines) p.drawText(txt,{x:48,y,font:usedFont,size:12});
+
+  await page.locator('#ocrToggle').uncheck();
+  await page.locator('#fileInput').setInputFiles({
+    name:'footer-medical.pdf',
+    mimeType:'application/pdf',
+    buffer:Buffer.from(await pdf.save())
+  });
+  await page.locator('#profileSelect').selectOption('standard');
+  await page.locator('#analyzeBtn').click();
+  await expect(page.locator('#progressLabel')).toContainText('Completato',{timeout:30000});
+
+  const values = await page.locator('[data-edit]').evaluateAll(nodes => nodes.map(n => n.value));
+  expect(values.some(v => /Francesco\s+Annarumma/i.test(v))).toBeTruthy();
+  expect(values.some(v => /L\.?\s*Rinaldi/i.test(v))).toBeTruthy();
+
+  for (const falsePositive of [
+    'Gruppo Sanguigno',
+    'Fattore Rh',
+    'Test di Coombs Indiretto',
+    'Proteine Totali',
+    'Il Dirigente',
+  ]) expect(values).not.toContain(falsePositive);
+
+  await expect(page.locator('.preview .redaction-box').first()).toBeVisible();
+
+  const selector = page.locator('#redactionMode');
+  await expect(selector).toBeVisible();
+  const metrics = await selector.evaluate(el => ({
+    clientWidth: el.clientWidth,
+    scrollWidth: el.scrollWidth,
+    value: el.value,
+    text: el.selectedOptions[0]?.textContent?.trim()
+  }));
+  expect(metrics.value).toBe('black');
+  expect(metrics.text).toBe('Nero compatto');
+  expect(metrics.clientWidth).toBeGreaterThanOrEqual(220);
+
+  await page.setViewportSize({width:390,height:850});
+  const mobileBox = await selector.boundingBox();
+  expect(mobileBox.width).toBeGreaterThan(250);
+  expect(mobileBox.width).toBeLessThanOrEqual(390);
+});
