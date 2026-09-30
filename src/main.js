@@ -338,7 +338,7 @@ function bindPolicyModal(){
     status.textContent = 'Per utilizzare A.D.A. Web è necessario accettare le condizioni. Puoi chiudere questa scheda del browser.';
   });
   accept.addEventListener('click', () => {
-    try { localStorage.setItem(POLICY_ACCEPT_KEY, JSON.stringify({ acceptedAt: new Date().toISOString(), version: '0.2.1-beta' })); } catch {}
+    try { localStorage.setItem(POLICY_ACCEPT_KEY, JSON.stringify({ acceptedAt: new Date().toISOString(), version: '0.3.0-beta' })); } catch {}
     modal.remove();
     document.body.classList.remove('modal-open');
   });
@@ -353,7 +353,7 @@ function render() {
           <img class="app-icon" src="${import.meta.env.BASE_URL}ada-icon.png" alt="Icona A.D.A.">
         </div>
         <div class="brand-copy">
-          <div class="eyebrow">A.D.A. WEB • 0.2.1-beta</div>
+          <div class="eyebrow">A.D.A. WEB • 0.3.0-beta</div>
           <h1>A.D.A. <span>Anonimizzatore Documenti Autonomo</span></h1>
           <div class="institution-credit">Tool sviluppato dalla Soprintendenza ABAP per le Province di Salerno e Avellino, Ufficio Informatico.</div>
         </div>
@@ -362,13 +362,26 @@ function render() {
     </header>
 
     <main class="layout">
+      <nav class="wizard-stepper" aria-label="Percorso guidato">
+        <div data-wizard-step="1" class="wizard-step active"><span>1</span><b>Carica</b></div>
+        <div data-wizard-step="2" class="wizard-step"><span>2</span><b>Configura</b></div>
+        <div data-wizard-step="3" class="wizard-step"><span>3</span><b>Rileva</b></div>
+        <div data-wizard-step="4" class="wizard-step"><span>4</span><b>Verifica</b></div>
+        <div data-wizard-step="5" class="wizard-step"><span>5</span><b>Scarica</b></div>
+      </nav>
+
       <section class="panel hero">
+        <div class="section-kicker">1 · Carica</div>
         <div class="dropzone" id="dropzone">
           <div class="drop-icon">📄</div>
-          <h2>Carica uno o più PDF</h2>
-          <p>I documenti restano sul dispositivo. Nessun upload, nessun server.</p>
+          <h2>Scegli i documenti da proteggere</h2>
+          <p>I documenti restano sul dispositivo. Puoi selezionare uno o più PDF; da desktop puoi anche scegliere una cartella.</p>
           <input id="fileInput" type="file" accept="application/pdf" multiple hidden />
-          <button class="primary" id="chooseBtn">Seleziona PDF</button>
+          <input id="folderInput" type="file" accept="application/pdf" webkitdirectory multiple hidden />
+          <div class="upload-actions">
+            <button class="primary" id="chooseBtn">Carica PDF</button>
+            <button class="ghost" id="folderBtn">Carica cartella</button>
+          </div>
         </div>
 
         <div class="privacy-note">
@@ -377,7 +390,18 @@ function render() {
       </section>
 
       <section class="panel settings">
-        <div class="panel-title">Tipi di dati</div>
+        <div class="section-kicker">2 · Configura</div>
+        <div class="panel-title">Scegli i dati da rilevare</div>
+        <div class="profile-box">
+          <label for="profileSelect">Profilo tecnico</label>
+          <select id="profileSelect">
+            <option value="standard">Standard</option>
+            <option value="transparency">Trasparenza / Pubblicazione</option>
+            <option value="ai">Dataset / AI / Ricerca</option>
+            <option value="custom">Personalizzato</option>
+          </select>
+          <small>È un preset tecnico modificabile e non sostituisce la valutazione dell'operatore.</small>
+        </div>
         <div class="chips" id="typeChips">
           ${chip('cf','Codice fiscale')}${chip('protocol','Protocollo / ID')}${chip('iban','IBAN')}${chip('email','Email / PEC')}${chip('phone','Telefono')}${chip('piva','P. IVA')}${chip('name','Nomi')}${chip('address','Indirizzi')}${chip('date','Date')}${chip('amount','Importi / valori')}
         </div>
@@ -405,7 +429,8 @@ function render() {
       <section class="panel workspace">
         <div class="workspace-head">
           <div>
-            <div class="panel-title">Coda documenti</div>
+            <div class="section-kicker">3 · Rileva</div>
+            <div class="panel-title">Documenti pronti per l'analisi</div>
             <div class="muted" id="queueText">Nessun documento caricato</div>
           </div>
           <div class="actions">
@@ -414,6 +439,7 @@ function render() {
             <button id="resetBtn" class="ghost">Reset</button>
           </div>
         </div>
+        <div id="analysisHint" class="analysis-hint" aria-live="polite"></div>
         <div class="progress-wrap hidden" id="progressWrap">
           <div class="progress-label" id="progressLabel">Preparazione…</div>
           <div class="progress"><div id="progressBar"></div></div>
@@ -429,6 +455,7 @@ function render() {
         <div class="panel findings-panel">
           <div class="findings-head">
             <div>
+              <div class="section-kicker">4 · Verifica</div>
               <div class="panel-title">Rilevamenti</div>
               <div class="muted" id="findingsCount">0 rilevamenti</div>
             </div>
@@ -477,6 +504,7 @@ function render() {
         <div class="panel preview-panel">
           <div class="preview-head">
             <div>
+              <div class="section-kicker">4 · Verifica</div>
               <div class="panel-title">Anteprima</div>
               <div class="muted" id="pageLabel"></div>
             </div>
@@ -501,6 +529,7 @@ function render() {
 
       <section class="panel export-panel">
         <div>
+          <div class="section-kicker">5 · Anonimizza e scarica</div>
           <strong>Controllo visivo dell’operatore obbligatorio.</strong>
           <div class="muted">Verifica sempre i rilevamenti prima dell’esportazione.</div>
         </div>
@@ -545,8 +574,10 @@ function render() {
         <img src="${import.meta.env.BASE_URL}ada-icon.png" alt="Icona A.D.A.">
       </div>
       <div><strong>A.D.A. Web</strong> · elaborazione locale · nessun documento viene trasmesso a server esterni<br><span>Tool sviluppato dalla Soprintendenza ABAP per le Province di Salerno e Avellino, Ufficio Informatico.</span></div>
+      <button id="bugReportBtn" class="ghost bug-report-btn" type="button">🐞 Segnala un problema</button>
     </footer>
     ${renderFirstUseModal()}
+    ${renderBugModal()}
   `;
   bind();
 }
