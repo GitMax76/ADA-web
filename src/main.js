@@ -809,73 +809,192 @@ async function analyzeCurrent(){
 function extractOcrWords(data){
   const out=[];
   const blocks=data.blocks||[];
-  for(const b of blocks) for(const par of (b.paragraphs||[])) for(const line of (par.lines||[])) for(const w of (line.words||[])){
-    if(w.text?.trim() && w.bbox) out.push({text:w.text,bbox:w.bbox});
+  let lineId=0;
+  for(const b of blocks){
+    for(const par of (b.paragraphs||[])){
+      for(const line of (par.lines||[])){
+        let indexInLine=0;
+        for(const w of (line.words||[])){
+          if(w.text?.trim() && w.bbox){
+            out.push({text:w.text.trim(),bbox:w.bbox,lineId,indexInLine,confidence:w.confidence??null});
+            indexInLine++;
+          }
+        }
+        lineId++;
+      }
+    }
   }
   return out;
 }
 
 const CF_VALUE_RE=/^[A-Z]{6}[0-9]{2}[A-EHLMPRST][0-9]{2}[A-Z][0-9]{3}[A-Z]$/i;
+const DATE_VALUE_RE=/^(?:0?[1-9]|[12]\d|3[01])[\/.-](?:0?[1-9]|1[0-2])[\/.-](?:19|20)\d{2}$/;
 const NAME_STOP_WORDS=new Set([
-  'AGENZIA','ATTESTAZIONE','BENE','CALCOLATO','CODICE','COGNOME','COMPONENTI','CORSI',
-  'DICHIARANTE','DICHIARAZIONE','DIREZIONE','ECONOMICA','ENTRATE','FAMILIARE','FAMILIARI',
-  'FISCALE','INDICATORE','INCLUSIONE','INPS','MINORENNI','MINISTERO','MODALITÀ','NOME',
-  'NUCLEO','ORDINARIO','PATRIMONIALE','PRESTAZIONI','PRESIDENTE','PROTOCOLLO','REDDITUALE',
-  'SANITARIE','SITUAZIONE','SOSTITUTIVA','SPECIFICHE','TIMBRO','UNICA','UFFICIO','VALORE'
+  'AGENZIA','ATTESTAZIONE','AVIS','BENE','CALCOLATO','CODICE','COGNOME','COMPONENTI','COOMBS','CORSI',
+  'DICHIARANTE','DICHIARAZIONE','DIRETTORE','DIREZIONE','DONATORE','ECONOMICA','ENTRATE','ESAME','ESITO',
+  'FAMILIARE','FAMILIARI','FATTORE','FISCALE','GRUPPO','IMMUNOEMATOLOGIA','INCLUSIONE','INDICATORE','INDIRETTO',
+  'INPS','MINORENNI','MINISTERO','MODALITÀ','NOME','NUCLEO','ORDINARIO','PATRIMONIALE','PRESTAZIONI',
+  'PRESIDENTE','PROTEINE','PROTOCOLLO','REDDITUALE','RIFERIMENTO','SANITARIE','SANGUIGNO','SITUAZIONE',
+  'SOSTITUTIVA','SPECIFICHE','TIMBRO','TOTALI','TRASFUSIONALE','UNICA','UFFICIO','VALORE','VALORI'
 ]);
 
 function cleanNameCell(value=''){
   return value.replace(/\s+/g,' ').trim();
 }
 
+function foldToken(value=''){
+  return value.normalize('NFD').replace(/\p{Diacritic}/gu,'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+}
+
+function isPersonWord(value=''){
+  const raw=cleanNameCell(value);
+  const folded=foldToken(raw);
+  if(!folded || folded.length<2 || /\d/.test(folded) || NAME_STOP_WORDS.has(folded)) return false;
+  return /^[A-ZÀ-ÖØ-Ýa-zà-öø-ÿ'’. -]+$/u.test(raw);
+}
+
 function isUpperNameCell(value=''){
   const v=cleanNameCell(value);
-  if(!v || !/^[A-ZÀ-ÖØ-Ý' -]+$/u.test(v)) return false;
+  if(!v || !/^[A-ZÀ-ÖØ-Ý'’ -]+$/u.test(v)) return false;
   const tokens=v.split(/[\s-]+/).filter(Boolean);
-  if(!tokens.length || tokens.some(t=>t.length<2 || NAME_STOP_WORDS.has(t.toUpperCase()))) return false;
-  return tokens.length<=4;
+  if(tokens.length<1 || tokens.length>4) return false;
+  return tokens.every(isPersonWord);
+}
+
+function ocrLines(page){
+  const map=new Map();
+  for(const w of (page.ocrWords||[])){
+    const id=Number.isFinite(w.lineId)?w.lineId:0;
+    if(!map.has(id)) map.set(id,[]);
+    map.get(id).push(w);
+  }
+  return [...map.values()].map(words=>words.sort((a,b)=>(a.indexInLine??0)-(b.indexInLine??0)));
+}
+
+function visualBandWords(page,anchor){
+  if(!anchor?.bbox) return [];
+  const ay=(anchor.bbox.y0+anchor.bbox.y1)/2;
+  const ah=Math.max(1,anchor.bbox.y1-anchor.bbox.y0);
+  return (page.ocrWords||[])
+    .filter(w=>{
+      const wy=(w.bbox.y0+w.bbox.y1)/2;
+      const wh=Math.max(1,w.bbox.y1-w.bbox.y0);
+      return Math.abs(wy-ay)<=Math.max(ah,wh)*1.35;
+    })
+    .sort((a,b)=>a.bbox.x0-b.bbox.x0);
+}
+
+function addOcrIdentityNames(page){
+  if(!ENABLED_TYPES.name || !page.ocrWords?.length) return;
+  const cfWords=page.ocrWords.filter(w=>CF_VALUE_RE.test(foldToken(w.text)));
+  for(const cfWord of cfWords){
+    const band=visualBandWords(page,cfWord);
+    const sequences=[];
+    let current=[];
+    for(const w of band){
+      if(w===cfWord || CF_VALUE_RE.test(foldToken(w.text)) || DATE_VALUE_RE.test(w.text)){
+        if(current.length) sequences.push(current);
+        current=[];
+        continue;
+      }
+      if(isUpperNameCell(w.text)){
+        current.push(w);
+      }else{
+        if(current.length) sequences.push(current);
+        current=[];
+      }
+    }
+    if(current.length) sequences.push(current);
+    for(const seq of sequences){
+      const tokens=seq.map(w=>cleanNameCell(w.text)).filter(isPersonWord);
+      if(tokens.length<2 || tokens.length>4) continue;
+      // Un nominativo associato al CF deve essere vicino allo stesso asse orizzontale.
+      const boxLeft=Math.min(...seq.map(w=>w.bbox.x0));
+      const boxRight=Math.max(...seq.map(w=>w.bbox.x1));
+      const distance=Math.min(Math.abs(boxLeft-cfWord.bbox.x1),Math.abs(cfWord.bbox.x0-boxRight));
+      if(distance > page.viewport.width*.45) continue;
+      addFinding('Nome','name',tokens.join(' '),page.pageNumber);
+    }
+  }
 }
 
 function addStructuredNames(page){
   if(!ENABLED_TYPES.name || !page.items?.length) return;
   const cells=page.items.map(i=>cleanNameCell(i.str)).filter(Boolean);
   for(let i=0;i<cells.length;i++){
-    if(!CF_VALUE_RE.test(cells[i])) continue;
-    const parts=[];
-    for(let j=i-1;j>=0 && j>=i-7 && parts.length<2;j--){
+    if(!CF_VALUE_RE.test(foldToken(cells[i]))) continue;
+    const candidates=[];
+    for(let j=Math.max(0,i-6);j<=Math.min(cells.length-1,i+6);j++){
+      if(j===i) continue;
       const candidate=cells[j];
-      if(/^[DCF]$/i.test(candidate)) continue;
-      if(CF_VALUE_RE.test(candidate)) break;
-      if(isUpperNameCell(candidate)){
-        parts.unshift(candidate);
-        continue;
-      }
-      if(parts.length) break;
+      if(isUpperNameCell(candidate)) candidates.push({j,candidate});
     }
-    const value=parts.join(' ').trim();
-    if(value.split(/\s+/).length>=2) addFinding('Nome','name',value,page.pageNumber);
+    const nearest=candidates.sort((a,b)=>Math.abs(a.j-i)-Math.abs(b.j-i))[0];
+    if(nearest && nearest.candidate.split(/\s+/).length>=2) addFinding('Nome','name',nearest.candidate,page.pageNumber);
   }
 }
 
 function addContextNames(page,text){
   if(!ENABLED_TYPES.name) return;
 
-  // Formula amministrativa frequente: "presentata da NOME COGNOME in data ..."
-  const declaredBy=/\bpresentata\s+da\s+([A-ZÀ-ÖØ-Ý][A-ZÀ-ÖØ-Ý' -]{2,70}?)\s+in\s+data\b/giu;
+  const declaredBy=/\bpresentata\s+da\s+([A-ZÀ-ÖØ-Ý][A-ZÀ-ÖØ-Ý'’ -]{2,70}?)\s+in\s+data\b/giu;
   for(const m of text.matchAll(declaredBy)){
     const value=cleanNameCell(m[1]);
     const tokens=value.split(/\s+/).filter(Boolean);
-    if(tokens.length>=2 && tokens.length<=4 && tokens.every(t=>!NAME_STOP_WORDS.has(t.toUpperCase()))){
-      addFinding('Nome','name',value,page.pageNumber);
-    }
+    if(tokens.length>=2 && tokens.length<=4 && tokens.every(isPersonWord)) addFinding('Nome','name',value,page.pageNumber);
   }
 
-  // Nomi in maiuscolo/minuscolo (es. firme), con blacklist per ridurre intestazioni e falsi positivi.
-  const titleNameRe=/\b(?:Sig\.?|Sig\.ra|Dott\.?|Dott\.ssa|Avv\.?|Ing\.?|Arch\.?)?\s*([A-ZÀ-ÖØ-Ý][a-zà-öø-ÿ']{2,})\s+([A-ZÀ-ÖØ-Ý][a-zà-öø-ÿ']{2,})\b/g;
-  for(const m of text.matchAll(titleNameRe)){
-    const tokens=[m[1],m[2]];
-    if(tokens.some(t=>NAME_STOP_WORDS.has(t.toUpperCase()))) continue;
-    addFinding('Nome','name',tokens.join(' '),page.pageNumber);
+  // Solo nomi introdotti da titoli/ruoli: evita di interpretare etichette cliniche come persone.
+  const titled=/\b(?:Sig\.?ra?|Dott\.?ssa?|Dott\.?|Dr\.?|Avv\.?|Ing\.?|Arch\.?)\s+((?:[A-ZÀ-ÖØ-Ý]\.?\s*)?[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]{2,}(?:\s+[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]{2,})?)/gu;
+  for(const m of text.matchAll(titled)){
+    const value=cleanNameCell(m[1]);
+    const tokens=value.split(/\s+/).filter(Boolean);
+    if(tokens.length && tokens.length<=3 && tokens.every(t=>isPersonWord(t)||/^[A-Z]\.?$/i.test(t))) addFinding('Nome','name',value,page.pageNumber);
+  }
+
+  // Su PDF testuali manteniamo una ricerca prudente di coppie Nome Cognome in forma normale.
+  if(!page.ocrWords?.length){
+    const nativePair=/\b([A-ZÀ-ÖØ-Ý][a-zà-öø-ÿ'’]{2,})\s+([A-ZÀ-ÖØ-Ý][a-zà-öø-ÿ'’]{2,})\b/g;
+    for(const m of text.matchAll(nativePair)){
+      const tokens=[m[1],m[2]];
+      if(tokens.every(isPersonWord)) addFinding('Nome','name',tokens.join(' '),page.pageNumber);
+    }
+  }
+}
+
+function addContextualIdentifiers(page,text){
+  if(ENABLED_TYPES.personalid){
+    const idPatterns=[
+      /\b(?:Cod(?:ice)?\s+Donatore|Cod(?:ice)?\s+Paziente|Cod(?:ice)?\s+Assistito|ID\s+(?:Donatore|Paziente|Assistito))\s*:?\s*([A-Z0-9][A-Z0-9./-]{3,24})\b/giu,
+    ];
+    for(const re of idPatterns) for(const m of text.matchAll(re)) addFinding('ID personale','personalid',m[1],page.pageNumber);
+  }
+  if(ENABLED_TYPES.birthdate){
+    const birth=/\b(?:Nato|Nata)\s+(?:il\s+)?((?:0?[1-9]|[12]\d|3[01])[\/.-](?:0?[1-9]|1[0-2])[\/.-](?:19|20)\d{2})\b/giu;
+    for(const m of text.matchAll(birth)) addFinding('Data di nascita','birthdate',m[1],page.pageNumber);
+  }
+}
+
+function addOcrAddresses(page){
+  if(!ENABLED_TYPES.address || !page.ocrWords?.length) return;
+  for(const words of ocrLines(page)){
+    const line=words.map(w=>w.text).join(' ').replace(/\s+/g,' ').trim();
+    if(!line) continue;
+
+    const street=/\b(?:Via|Viale|Piazza|Corso|Largo|Vicolo|Strada|Località)\s*:?\s*(.+?)(?=\s+(?:n\.?|civ(?:ico)?\.?)\s*[0-9]|\s+\d{5}\b|$)/iu.exec(line);
+    if(street){
+      const streetValue=cleanNameCell(street[1]).replace(/[,:;.-]+$/,'');
+      if(streetValue.length>=2 && streetValue.length<=60) addFinding('Indirizzo','address',streetValue,page.pageNumber);
+      const civic=/\b(?:n\.?|civ(?:ico)?\.?)\s*([0-9]+(?:[\/-][A-Z0-9]+)?[A-Z]?)/iu.exec(line);
+      if(civic) addFinding('Indirizzo','address',civic[1],page.pageNumber);
+    }
+
+    const city=/\b(\d{5})\s*[-–]?\s*([A-ZÀ-ÖØ-Ý][A-ZÀ-ÖØ-Ý'’ -]{2,})(?:\s*\(([A-Z]{2})\))?/u.exec(line);
+    if(city){
+      addFinding('Indirizzo','address',city[1],page.pageNumber);
+      addFinding('Indirizzo','address',cleanNameCell(city[2]),page.pageNumber);
+      if(city[3]) addFinding('Indirizzo','address',city[3],page.pageNumber);
+    }
   }
 }
 
@@ -888,11 +1007,14 @@ function detectPage(page){
     }
   }
 
+  addContextualIdentifiers(page,text);
   addStructuredNames(page);
+  addOcrIdentityNames(page);
   addContextNames(page,text);
+  addOcrAddresses(page);
 
-  if(ENABLED_TYPES.address){
-    const addrRe=/\b(?:Via|Viale|Piazza|Corso|Largo|Vicolo|Strada|Località)\s+[A-ZÀ-ÖØ-Ý][\wÀ-ÿ'.\- ]{2,50}(?:,?\s*\d{1,4}[A-Za-z\/]*)?/g;
+  if(ENABLED_TYPES.address && !page.ocrWords?.length){
+    const addrRe=/\b(?:Via|Viale|Piazza|Corso|Largo|Vicolo|Strada|Località)\s*:?\s+[A-ZÀ-ÖØ-Ý][\wÀ-ÿ'.’\- ]{2,50}(?:,?\s*\d{1,4}[A-Za-z\/]*)?/g;
     for(const m of text.matchAll(addrRe)) addFinding('Indirizzo','address',m[0].trim(),page.pageNumber);
   }
 }
