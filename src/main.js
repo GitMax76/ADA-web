@@ -3,6 +3,8 @@ import * as pdfjsLib from 'pdfjs-dist';
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { PDFDocument } from 'pdf-lib';
 import { createWorker } from 'tesseract.js';
+import { recognizeOrientedPage } from './ocr-layout.js';
+import { completeAddresses, signatureSuggestion } from './contact-regions.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
@@ -19,6 +21,8 @@ if (import.meta.env.DEV) {
 }
 
 const state = {
+  busy: false,
+  documents: new Map(),
   files: [],
   currentIndex: 0,
   findings: [],
@@ -32,6 +36,7 @@ const state = {
   currentPage: 1,
   totalPages: 0,
   manualMode: false,
+  manualKind: 'manual',
   adjustMode: false,
   precisionMode: 'precise',
   previewZoom: 1,
@@ -41,6 +46,7 @@ const state = {
   pdfType: 'unknown',
   currentStage: 'idle',
   analysisWarnings: [],
+  analysisSettings: null,
   diagEvents: [],
 };
 
@@ -48,7 +54,7 @@ const PATTERNS = [
   { type: 'Codice fiscale', key: 'cf', re: /\b[A-Z]{6}[0-9]{2}[A-EHLMPRST][0-9]{2}[A-Z][0-9]{3}[A-Z]\b/gi },
   { type: 'Protocollo / identificativo', key: 'protocol', re: /\bINPS-ISEE-\d{4}-[A-Z0-9]+-\d{2}\b/gi },
   { type: 'IBAN', key: 'iban', re: /\bIT\s?\d{2}\s?[A-Z]\s?\d{5}\s?\d{5}\s?[A-Z0-9]{12}\b/gi },
-  { type: 'Email / PEC', key: 'email', re: /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi },
+  { type: 'Email / PEC', key: 'email', re: /\b[A-Z0-9._%+-]+\s*@\s*[A-Z0-9-]+(?:\s*\.\s*[A-Z0-9-]+)*\s*\.\s*[A-Z]{2,}\b/gi },
   { type: 'P. IVA', key: 'piva', re: /\b(?:IT\s*)?\d{11}\b/g },
   { type: 'Telefono', key: 'phone', re: /(?<![A-Z0-9-])(?:\+39\s?)?(?:0\d{1,4}[\s./-]?\d{5,8}|3\d{2}[\s./-]?\d{6,7})(?![A-Z0-9-])/gi },
   { type: 'Data', key: 'date', re: /\b(?:0?[1-9]|[12]\d|3[01])[\/.-](?:0?[1-9]|1[0-2])[\/.-](?:19|20)\d{2}\b/g },
@@ -57,7 +63,7 @@ const PATTERNS = [
 
 const ENABLED_TYPES = {
   cf: true, personalid: true, birthdate: true, protocol: true, iban: true, email: true,
-  piva: true, phone: true, date: false, amount: false, name: true, address: true
+  piva: true, phone: true, date: false, amount: false, name: true, address: true, signature: true
 };
 
 function escapeHtml(s='') {
@@ -65,16 +71,16 @@ function escapeHtml(s='') {
 }
 
 
-const APP_VERSION='0.3.2-beta';
+const APP_VERSION='0.3.4-beta';
 const BUG_REPO_URL='https://github.com/GitMax76/ADA-web/issues/new';
 const DIAG_MAX=20;
 const OCR_INIT_TIMEOUT=60000;
 const OCR_PAGE_TIMEOUT=90000;
 
 const PROFILES={
-  standard:{label:'Standard',types:{cf:true,personalid:true,birthdate:true,protocol:true,iban:true,email:true,piva:true,phone:true,name:true,address:true,date:false,amount:false}},
-  transparency:{label:'Trasparenza / Pubblicazione',types:{cf:true,personalid:true,birthdate:true,protocol:true,iban:true,email:true,piva:true,phone:true,name:true,address:true,date:true,amount:false}},
-  ai:{label:'Dataset / AI / Ricerca',types:{cf:true,personalid:true,birthdate:true,protocol:true,iban:true,email:true,piva:true,phone:true,name:true,address:true,date:true,amount:true}},
+  standard:{label:'Standard',types:{cf:true,personalid:true,birthdate:true,protocol:true,iban:true,email:true,piva:true,phone:true,name:true,address:true,signature:true,date:false,amount:false}},
+  transparency:{label:'Trasparenza / Pubblicazione',types:{cf:true,personalid:true,birthdate:true,protocol:true,iban:true,email:true,piva:true,phone:true,name:true,address:true,signature:true,date:true,amount:false}},
+  ai:{label:'Dataset / AI / Ricerca',types:{cf:true,personalid:true,birthdate:true,protocol:true,iban:true,email:true,piva:true,phone:true,name:true,address:true,signature:true,date:true,amount:true}},
 };
 
 function environmentSummary(){
@@ -351,7 +357,7 @@ function render() {
           <img class="app-icon" src="${import.meta.env.BASE_URL}ada-icon.png" alt="Icona A.D.A.">
         </div>
         <div class="brand-copy">
-          <div class="eyebrow">A.D.A. WEB • 0.3.2-beta</div>
+          <div class="eyebrow">A.D.A. WEB • ${APP_VERSION}</div>
           <h1>A.D.A. <span>Anonimizzatore Documenti Autonomo</span></h1>
           <div class="institution-credit">Tool sviluppato dalla Soprintendenza ABAP per le Province di Salerno e Avellino, Ufficio Informatico.</div>
         </div>
@@ -401,10 +407,10 @@ function render() {
           <small>È un preset tecnico modificabile e non sostituisce la valutazione dell'operatore.</small>
         </div>
         <div class="chips" id="typeChips">
-          ${chip('cf','Codice fiscale')}${chip('personalid','ID personale')}${chip('birthdate','Data di nascita')}${chip('protocol','Protocollo / ID')}${chip('iban','IBAN')}${chip('email','Email / PEC')}${chip('phone','Telefono')}${chip('piva','P. IVA')}${chip('name','Nomi')}${chip('address','Indirizzi')}${chip('date','Altre date')}${chip('amount','Importi / valori')}
+          ${chip('cf','Codice fiscale')}${chip('personalid','ID personale')}${chip('birthdate','Data di nascita')}${chip('protocol','Protocollo / ID')}${chip('iban','IBAN')}${chip('email','Email / PEC (anche istituzionali)')}${chip('phone','Telefono')}${chip('piva','P. IVA')}${chip('name','Nomi')}${chip('signature','Firme: suggerisci aree')}${chip('address','Indirizzi')}${chip('date','Altre date')}${chip('amount','Importi / valori')}
         </div>
         <div class="setting-row">
-          <label><input type="checkbox" id="ocrToggle" ${state.ocrEnabled?'checked':''}> OCR locale per pagine scansite</label>
+          <label><input type="checkbox" id="ocrToggle" ${state.ocrEnabled?'checked':''}> OCR e orientamento su tutte le pagine (più lento)</label>
         </div>
         <div class="setting-row">
           <label for="redactionMode">Stile oscuramento</label>
@@ -430,7 +436,9 @@ function render() {
           <div>
             <div class="section-kicker">3 · Rileva</div>
             <div class="panel-title">Documenti pronti per l'analisi</div>
-            <div class="muted" id="queueText">Nessun documento caricato</div>
+            <div class="muted" id="queueText" aria-live="polite">Nessun documento caricato</div>
+            <label for="documentSelect">Documento da elaborare (uno alla volta)</label>
+            <select id="documentSelect" disabled></select>
           </div>
           <div class="actions">
             <button id="analyzeBtn" class="primary" disabled>Rileva dati</button>
@@ -465,7 +473,7 @@ function render() {
               <span>Tipo</span>
               <select id="filterType">
                 <option value="all">Tutti</option>
-                <option value="name">Nomi</option>
+                <option value="name">Nomi</option><option value="signature">Firme</option>
                 <option value="cf">Codici fiscali</option>
                 <option value="personalid">ID personali</option>
                 <option value="birthdate">Date di nascita</option>
@@ -513,6 +521,7 @@ function render() {
               <button id="prevPageBtn" class="ghost compact" disabled>←</button>
               <button id="nextPageBtn" class="ghost compact" disabled>→</button>
               <button id="manualAreaBtn" class="ghost" disabled>＋ Area manuale</button>
+              <button id="signatureAreaBtn" class="ghost" disabled>Oscura firma a mano</button>
               <button id="adjustAreaBtn" class="ghost" disabled>↔ Regola aree</button>
               <select id="zoomSelect" class="zoom-select" disabled>
                 <option value="0.8" ${state.previewZoom===0.8?'selected':''}>80%</option>
@@ -602,21 +611,23 @@ function bind(){
   const dz = document.querySelector('#dropzone');
   ['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add('dragging')}));
   ['dragleave','drop'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove('dragging')}));
-  dz.addEventListener('drop',e=>addFiles([...e.dataTransfer.files].filter(f=>f.type==='application/pdf')));
+  dz.addEventListener('drop',e=>addFiles([...e.dataTransfer.files]));
 
   document.querySelectorAll('[data-type]').forEach(i=>i.onchange=e=>{
     ENABLED_TYPES[e.target.dataset.type]=e.target.checked;
     e.target.closest('.chip').classList.toggle('on',e.target.checked);
     const profile=document.querySelector('#profileSelect');
     if(profile) profile.value='custom';
+    flagChangedSettings();
   });
   const profileSelect=document.querySelector('#profileSelect');
   if(profileSelect){
-    profileSelect.onchange=e=>{ if(e.target.value!=='custom') applyProfile(e.target.value); };
+    profileSelect.onchange=e=>{ if(e.target.value!=='custom') applyProfile(e.target.value); flagChangedSettings(); };
   }
-  document.querySelector('#ocrToggle').onchange=e=>state.ocrEnabled=e.target.checked;
+  document.querySelector('#ocrToggle').onchange=e=>{state.ocrEnabled=e.target.checked;flagChangedSettings();};
   document.querySelector('#redactionMode').onchange=e=>{state.redactionMode=e.target.value; if(state.pdfBytes) renderPreview(state.currentPage);};
   document.querySelector('#precisionMode').onchange=e=>{state.precisionMode=e.target.value; if(state.pdfBytes) renderPreview(state.currentPage);};
+  document.querySelector('#documentSelect').onchange=e=>selectDocument(Number(e.target.value));
   document.querySelector('#analyzeBtn').onclick=analyzeCurrent;
   document.querySelector('#cancelBtn').onclick=async()=>{state.abort=true;recordDiag('operation_cancelled','warning',{stage:state.currentStage});updateAnalysisHint('Operazione annullata dall’utente. Nessun documento è stato inviato online.','warning');try{await state.ocrWorker?.terminate();}catch{}state.ocrWorker=null;};
   document.querySelector('#resetBtn').onclick=resetSession;
@@ -624,6 +635,12 @@ function bind(){
   document.querySelector('#prevPageBtn').onclick=()=>goToPage(state.currentPage-1);
   document.querySelector('#nextPageBtn').onclick=()=>goToPage(state.currentPage+1);
   document.querySelector('#manualAreaBtn').onclick=toggleManualMode;
+  document.querySelector('#signatureAreaBtn').onclick=()=>{
+    if(!state.pdfBytes || state.busy) return;
+    state.manualKind='signature';state.manualMode=true;state.adjustMode=false;
+    updateAnalysisHint('Trascina un rettangolo che contenga tutta la firma, incluse le estremita dei tratti.','info');
+    renderPreview(state.currentPage);
+  };
   document.querySelector('#adjustAreaBtn').onclick=toggleAdjustMode;
   document.querySelector('#zoomSelect').onchange=e=>{state.previewZoom=Number(e.target.value)||1; if(state.pdfBytes) renderPreview(state.currentPage);};
   const mobilePreviewTab=document.querySelector('#mobilePreviewTab');
@@ -693,11 +710,52 @@ function bind(){
   updateWizard(state.wizardStep||1);
 }
 
+const DOCUMENT_FIELDS=['findings','pages','pdfBytes','outputBytes','currentPage','totalPages','pdfType','currentStage','analysisWarnings','analysisSettings'];
+function saveDocument(){
+  const file=state.files[state.currentIndex];
+  if(file) state.documents.set(file,Object.fromEntries(DOCUMENT_FIELDS.map(k=>[k,state[k]])));
+}
+function clearDocument(){
+  Object.assign(state,{findings:[],pages:[],pdfBytes:null,outputBytes:null,currentPage:1,totalPages:0,pdfType:'unknown',currentStage:'loaded',analysisWarnings:[],analysisSettings:null});
+}
+async function selectDocument(index){
+  if(state.busy || !state.files[index]) return;
+  saveDocument();
+  state.currentIndex=index;
+  clearDocument();
+  Object.assign(state,state.documents.get(state.files[index])||{});
+  if(state.analysisSettings){
+    const settings=JSON.parse(state.analysisSettings);
+    Object.assign(ENABLED_TYPES,settings.types);state.ocrEnabled=settings.ocr;
+    syncTypeChips();document.querySelector('#ocrToggle').checked=state.ocrEnabled;
+    document.querySelector('#profileSelect').value='custom';
+  }
+  state.manualMode=false; state.adjustMode=false;
+  state.filters={type:'all',status:'all',page:'all',search:''};
+  document.querySelector('#preview').textContent='Avvia Rileva dati per questo documento.';
+  document.querySelector('#thumbStrip').innerHTML='';
+  renderFindings(); updateQueue(); updatePreviewControls();
+  updateExportAvailability();
+  updateWizard(state.pdfBytes?4:2);
+  updateAnalysisHint(state.pdfBytes?'Risultati del documento selezionato. Controlla ogni pagina prima di esportare.':'Documento pronto: premi Rileva dati. Gli altri file restano nella lista.','info');
+  if(state.pdfBytes){
+    setBusy(true,'Apertura documento...');
+    try{await renderPreview(state.currentPage);await renderThumbnailStrip();}finally{setBusy(false);}
+  }
+}
 function addFiles(files){
+  if(state.busy) return;
+  saveDocument();
   files=files.filter(f=>f.type==='application/pdf'||/\.pdf$/i.test(f.name));
   if(!files.length) return;
   state.files.push(...files);
   state.currentIndex = state.files.length-files.length;
+  clearDocument();
+  state.filters={type:"all",status:"all",page:"all",search:""};
+  renderFindings(); updatePreviewControls();
+  document.querySelector("#preview").textContent="Premi Rileva dati per analizzare il documento selezionato.";
+  document.querySelector("#thumbStrip").innerHTML="";
+  document.querySelector("#exportBtn").disabled=true;
   state.currentStage='loaded';
   recordDiag('files_loaded','ok',{stage:'loaded',filesCount:state.files.length,fileSizeMb:Math.round((files[0].size/1024/1024)*2)/2});
   updateQueue();
@@ -705,16 +763,42 @@ function addFiles(files){
   updateAnalysisHint('Documenti caricati. Scegli i dati da rilevare e avvia l’analisi quando sei pronto.','info');
 }
 
+function analysisIsCurrent(){
+  return state.analysisSettings===JSON.stringify({types:ENABLED_TYPES,ocr:state.ocrEnabled});
+}
+function canExport(){
+  return !state.busy && !!state.pdfBytes && state.findings.some(f=>f.enabled) && analysisIsCurrent() && !state.findings.some(f=>f.pendingReview);
+}
+function updateExportAvailability(){
+  const button=document.querySelector('#exportBtn');
+  if(button) button.disabled=!canExport();
+}
+function flagChangedSettings(){
+  updateQueue();
+  updateExportAvailability();
+  if(state.pdfBytes && !analysisIsCurrent()) updateAnalysisHint('Impostazioni modificate: premi Rileva dati. I risultati visibili appartengono all’analisi precedente.','warning');
+}
 function updateQueue(){
   const q = document.querySelector('#queueText');
   const a = document.querySelector('#analyzeBtn');
   if(!q||!a) return;
+  const selector=document.querySelector('#documentSelect');
+  selector.innerHTML=state.files.map((file,i)=>'<option value="'+i+'">'+escapeHtml(file.name)+' - '+((i===state.currentIndex?state.pdfBytes:state.documents.get(file)?.pdfBytes)?'analizzato':'da analizzare')+'</option>').join('');
+  selector.value=String(state.currentIndex);
+  selector.disabled=state.busy || !state.files.length;
+  a.classList.toggle('next-action',!!state.files.length && (!state.pdfBytes || !analysisIsCurrent()) && !state.busy);
   if(!state.files.length){ q.textContent='Nessun documento caricato'; a.disabled=true; return; }
   q.textContent = `${state.files.length} file • corrente: ${state.files[state.currentIndex].name}`;
-  a.disabled=false;
+  a.disabled=state.busy;
+  a.textContent=state.pdfBytes?'Rileva di nuovo (sostituisce le modifiche)':'Rileva dati';
 }
 
 function setBusy(on,label=''){
+  state.busy=on;
+  document.querySelector('#reviewSplit').inert=on;
+  document.querySelectorAll('[data-type], #profileSelect, #ocrToggle, #redactionMode, #precisionMode, #chooseBtn, #folderBtn, #fileInput, #folderInput, #resetBtn').forEach(el=>el.disabled=on);
+  updateExportAvailability();
+  updateQueue();
   document.querySelector('#progressWrap').classList.toggle('hidden',!on);
   document.querySelector('#analyzeBtn').disabled=on || !state.files.length;
   document.querySelector('#cancelBtn').disabled=!on;
@@ -726,13 +810,15 @@ function progress(p,label){
 }
 
 async function analyzeCurrent(){
-  if(!state.files.length) return;
+  if(state.busy || !state.files.length) return;
   state.abort=false; state.findings=[]; state.pages=[]; state.outputBytes=null; state.currentPage=1; state.totalPages=0; state.manualMode=false; state.adjustMode=false;
   state.analysisWarnings=[]; state.pdfType='unknown'; state.currentStage='analysis';
+  state.analysisSettings=JSON.stringify({types:ENABLED_TYPES,ocr:state.ocrEnabled});
   updateWizard(3);
   recordDiag('analysis_start','ok',{stage:'analysis',ocrEnabled:state.ocrEnabled,filesCount:state.files.length});
   setBusy(true,'Lettura PDF…'); progress(2);
   try{
+    if(state.ocrWorker){await state.ocrWorker.terminate();state.ocrWorker=null;}
     const file=state.files[state.currentIndex];
     state.pdfBytes = new Uint8Array(await file.arrayBuffer());
     const loadingTask=pdfjsLib.getDocument({data:state.pdfBytes.slice()});
@@ -749,34 +835,55 @@ async function analyzeCurrent(){
       const text=items.map(i=>i.str).join(' ');
       const pageData={pageNumber:p,viewport,items,text,ocrText:'',ocrWords:[]};
 
-      if(text.trim().length<25){
-        if(state.ocrEnabled){
-          updateAnalysisHint('Documento rasterizzato o scansito rilevato: A.D.A. sta usando l’OCR locale. Può richiedere più tempo.','info');
-          progress(((p-1)/pdf.numPages)*70+5,`OCR locale pagina ${p}/${pdf.numPages}…`);
-          const canvas=document.createElement('canvas');
-          const ctx=canvas.getContext('2d',{willReadFrequently:true});
-          canvas.width=Math.ceil(viewport.width); canvas.height=Math.ceil(viewport.height);
-          await page.render({canvasContext:ctx,viewport}).promise;
-          try{
-            if(!state.ocrWorker){
-              state.ocrWorker=await withTimeout(createWorker('ita',1,{logger:m=>{ if(m.progress) progress(Math.min(75,5+m.progress*60),`OCR: ${m.status}`); }}),OCR_INIT_TIMEOUT,'OCR_INIT_TIMEOUT');
-            }
-            const r=await withTimeout(state.ocrWorker.recognize(canvas,{}, { blocks:true }),OCR_PAGE_TIMEOUT,'OCR_PAGE_TIMEOUT');
-            pageData.ocrText=r.data.text||'';
-            pageData.ocrWords=extractOcrWords(r.data);
-            recordDiag('ocr_page','ok',{stage:'ocr',page:p,pages:pdf.numPages});
-          }catch(ocrErr){
-            const code=safeErrorCode('ocr',ocrErr);
-            state.analysisWarnings.push(`OCR pagina ${p}: ${code}`);
-            recordDiag('ocr_page','error',{stage:'ocr',page:p,pages:pdf.numPages,code});
-            try{await state.ocrWorker?.terminate();}catch{}
-            state.ocrWorker=null;
-            updateAnalysisHint('L’OCR ha impiegato troppo tempo o ha incontrato un problema su una pagina. L’analisi prosegue e potrai verificare manualmente.','warning');
+      pageData.rotation=page.rotate;
+      if(state.ocrEnabled){
+        let finalCanvas=null;
+        try{
+          if(!state.ocrWorker){
+            let expired=false;
+            const pendingWorker=createWorker('ita',1,{}, {classify_enable_learning:'0'});
+            pendingWorker.then(worker=>{if(expired || state.abort) return worker.terminate();}).catch(()=>{});
+            try{state.ocrWorker=await withTimeout(pendingWorker,OCR_INIT_TIMEOUT,'OCR_INIT_TIMEOUT');}
+            catch(error){expired=true;throw error;}
           }
-        }else{
-          state.analysisWarnings.push(`Pagina ${p} senza testo: OCR disattivato`);
+          const result=await recognizeOrientedPage({
+            worker:state.ocrWorker,
+            rotation:page.rotate,
+            checkCancelled:()=>{if(state.abort) throw new Error('Operazione annullata');},
+            onProgress:label=>progress(((p-1)/pdf.numPages)*75+5,`Pagina ${p}/${pdf.numPages}: ${label}`),
+            recognize:(worker,image,blocks)=>withTimeout(worker.recognize(image,{}, {text:true,blocks}),OCR_PAGE_TIMEOUT,'OCR_PAGE_TIMEOUT'),
+            render:async(rotation,scale)=>{
+              const vp=page.getViewport({scale,rotation});
+              const canvas=document.createElement('canvas');
+              canvas.width=Math.ceil(vp.width);canvas.height=Math.ceil(vp.height);
+              await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;
+              if(scale===3) finalCanvas=canvas;
+              return canvas;
+            }
+          });
+          pageData.rotation=result.rotation;
+          pageData.viewport=page.getViewport({scale:3,rotation:result.rotation});
+          pageData.ocrText=result.data.text||'';
+          pageData.ocrWords=extractOcrWords(result.data);
+          pageData.ocrConfidence=result.data.confidence;
+          if(ENABLED_TYPES.signature && finalCanvas){
+            const {width,height}=finalCanvas;
+            pageData.signatureCandidate=signatureSuggestion(pageData.ocrWords,width,height,finalCanvas.getContext('2d').getImageData(0,0,width,height).data);
+            if(pageData.signatureCandidate) state.analysisWarnings.push(`Pagina ${p}: possibile firma, conferma o scarta l'area suggerita prima di esportare`);
+          }
+          if(result.uncertain) state.analysisWarnings.push(`Pagina ${p}: orientamento incerto, verificare manualmente`);
+          if(!pageData.ocrWords.length) state.analysisWarnings.push(`Pagina ${p}: nessuna parola OCR, revisione manuale necessaria`);
+          recordDiag('ocr_page','ok',{stage:'ocr',page:p,pages:pdf.numPages});
+        }catch(ocrErr){
+          if(state.abort) throw ocrErr;
+          const code=safeErrorCode('ocr',ocrErr);
+          state.analysisWarnings.push(`OCR pagina ${p}: ${code}. Revisione manuale necessaria`);
+          try{await state.ocrWorker?.terminate();}catch{}state.ocrWorker=null;
         }
+      }else if(text.trim().length<25){
+        state.analysisWarnings.push(`Pagina ${p} senza testo: OCR disattivato`);
       }
+      if(state.abort) throw new Error('Operazione annullata');
       state.pages.push(pageData);
       detectPage(pageData);
       progress(5+(p/pdf.numPages)*75,`Analisi pagina ${p}/${pdf.numPages}…`);
@@ -788,21 +895,25 @@ async function analyzeCurrent(){
     renderFindings();
     await renderPreview(1);
     await renderThumbnailStrip();
-    document.querySelector('#exportBtn').disabled=state.findings.length===0;
+  updateExportAvailability();
     updatePreviewControls();
     state.currentStage='review';
     updateWizard(4);
-    const warningText=state.analysisWarnings.length?` • ${state.analysisWarnings.length} avviso/i`:'';
-    updateAnalysisHint(`Analisi completata: PDF ${state.pdfType}. Controlla sempre i rilevamenti prima di esportare.${warningText}`,state.analysisWarnings.length?'warning':'success');
+    const warningText=state.analysisWarnings.length?' '+state.analysisWarnings.join(' | '):'';
+    updateAnalysisHint(`Analisi completata: PDF ${state.pdfType}. Controlla tutte le pagine: firme, targhe e fotografie richiedono revisione manuale.${warningText}`,state.analysisWarnings.length?'warning':'success');
     recordDiag('analysis_complete','ok',{stage:'review',pages:pdf.numPages,pdfType:state.pdfType,ocrEnabled:state.ocrEnabled,findings:state.findings.length});
     progress(100,`Completato • ${state.findings.length} rilevamenti`);
   }catch(err){
     state.currentStage='error';
+    state.pdfBytes=null; state.findings=[]; state.pages=[]; renderFindings();
+    document.querySelector('#preview').textContent='Analisi incompleta: ripeti il rilevamento.';
     const code=safeErrorCode('analysis',err);
     recordDiag('analysis_failed','error',{stage:'analysis',code,ocrEnabled:state.ocrEnabled,pages:state.totalPages||0});
     updateAnalysisHint('L’analisi non è stata completata. Puoi riprovare oppure usare “Segnala un problema” per condividere la diagnostica tecnica.','error');
     progress(100,err?.code==='OCR_PAGE_TIMEOUT'?'OCR oltre il tempo massimo':(err.message||'Errore'));
   }finally{
+    if(state.ocrWorker){try{await state.ocrWorker.terminate();}catch{}state.ocrWorker=null;}
+    saveDocument();
     setBusy(false);
   }
 }
@@ -836,7 +947,7 @@ const NAME_STOP_WORDS=new Set([
   'FAMILIARE','FAMILIARI','FATTORE','FISCALE','GRUPPO','IMMUNOEMATOLOGIA','INCLUSIONE','INDICATORE','INDIRETTO',
   'INPS','MINORENNI','MINISTERO','MODALITÀ','NOME','NUCLEO','ORDINARIO','PATRIMONIALE','PRESTAZIONI',
   'PRESIDENTE','PROTEINE','PROTOCOLLO','REDDITUALE','RIFERIMENTO','SANITARIE','SANGUIGNO','SITUAZIONE',
-  'SOSTITUTIVA','SPECIFICHE','TIMBRO','TOTALI','TRASFUSIONALE','UNICA','UFFICIO','VALORE','VALORI'
+  'SOSTITUTIVA','SPECIFICHE','TUTELA','PAESAGGISTICA','GENERALE','TIMBRO','TOTALI','TRASFUSIONALE','UNICA','UFFICIO','VALORE','VALORI'
 ]);
 
 function cleanNameCell(value=''){
@@ -940,17 +1051,17 @@ function addContextNames(page,text){
 
   const declaredBy=/\bpresentata\s+da\s+([A-ZÀ-ÖØ-Ý][A-ZÀ-ÖØ-Ý'’ -]{2,70}?)\s+in\s+data\b/giu;
   for(const m of text.matchAll(declaredBy)){
-    const value=cleanNameCell(m[1]);
+    const value=cleanNameCell(m[1]).replace(/\s+(?:Tel\.?|PEC|Fax|Email)\b.*$/i,'');
     const tokens=value.split(/\s+/).filter(Boolean);
     if(tokens.length>=2 && tokens.length<=4 && tokens.every(isPersonWord)) addFinding('Nome','name',value,page.pageNumber);
   }
 
   // Solo nomi introdotti da titoli/ruoli: evita di interpretare etichette cliniche come persone.
-  const titled=/\b(?:Sig\.?ra?|Dott\.?ssa?|Dott\.?|Dr\.?|Avv\.?|Ing\.?|Arch\.?)\s+((?:[A-ZÀ-ÖØ-Ý]\.?\s*)?[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]{2,}(?:\s+[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]{2,})?)/gu;
+  const titled=/\b(?:[Ss]ig\.?ra?|[Dd]ott\.?ssa?|[Dd]ott\.?|[Dd]r\.?|[Aa]vv\.?|[Ii]ng\.?|[Aa]rch\.?)\s+((?:[A-ZÀ-ÖØ-Ý]\.?\s*)?[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]{2,}(?:\s+[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]{2,}){0,3})/gu;
   for(const m of text.matchAll(titled)){
-    const value=cleanNameCell(m[1]);
+    const value=cleanNameCell(m[1]).replace(/\s+(?:Tel\.?|PEC|Fax|Email)\b.*$/i,'');
     const tokens=value.split(/\s+/).filter(Boolean);
-    if(tokens.length && tokens.length<=3 && tokens.every(t=>isPersonWord(t)||/^[A-Z]\.?$/i.test(t))) addFinding('Nome','name',value,page.pageNumber);
+    if(tokens.length && tokens.length<=4 && tokens.every(t=>isPersonWord(t)||/^[A-Z]\.?$/i.test(t))) addFinding('Nome','name',value,page.pageNumber);
   }
 
 }
@@ -993,7 +1104,7 @@ function addRoleBasedNames(page,text){
 
   for(const line of signatoryLines(page)){
     // Titoli professionali tipici dei referti, anche con iniziale puntata o cognome composto.
-    const titled=/\b(?:Dott\.?ssa?|Dott\.?|Dr\.?|Prof\.?ssa?|Prof\.?)\s*([A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]*(?:\s+[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]*){0,3})\s*$/u.exec(line);
+    const titled=/\b(?:[Dd]ott\.?ssa?|[Dd]ott\.?|[Dd]r\.?|[Pp]rof\.?ssa?|[Pp]rof\.?)\s*([A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]*(?:\s+[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]*){0,3})\s*$/u.exec(line);
     if(titled){
       const value=validPersonCandidate(titled[1]);
       if(value) addFinding('Nome','name',value,page.pageNumber);
@@ -1009,7 +1120,7 @@ function addRoleBasedNames(page,text){
   }
 
   // Fallback sul testo ricomposto per OCR che spezza ruolo e firma su righe diverse.
-  const compact=/\b(?:Dott\.?ssa?|Dott\.?|Dr\.?|Prof\.?ssa?|Prof\.?)\s*((?:[A-ZÀ-ÖØ-Ý]\.?\s*){0,2}(?:(?:De|Di|Da|Del|Della|Dello|Lo|La|Van|Von)\s+)?[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]{2,}(?:\s+[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]{2,})?)/gu;
+  const compact=/\b(?:[Dd]ott\.?ssa?|[Dd]ott\.?|[Dd]r\.?|[Pp]rof\.?ssa?|[Pp]rof\.?)\s*((?:[A-ZÀ-ÖØ-Ý]\.?\s*){0,2}(?:(?:De|Di|Da|Del|Della|Dello|Lo|La|Van|Von)\s+)?[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]{2,}(?:\s+[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]{2,})?)/gu;
   for(const m of text.matchAll(compact)){
     const value=validPersonCandidate(m[1]);
     if(value) addFinding('Nome','name',value,page.pageNumber);
@@ -1024,7 +1135,7 @@ function addContextualIdentifiers(page,text){
     for(const re of idPatterns) for(const m of text.matchAll(re)) addFinding('ID personale','personalid',m[1],page.pageNumber);
   }
   if(ENABLED_TYPES.birthdate){
-    const birth=/\b(?:Nato|Nata)\s+(?:il\s+)?((?:0?[1-9]|[12]\d|3[01])[\/.-](?:0?[1-9]|1[0-2])[\/.-](?:19|20)\d{2})\b/giu;
+    const birth=/\b(?:Nato|Nata)(?:\s+a\s+[^.;:]{1,60}?)?\s+(?:il\s+)?((?:0?[1-9]|[12]\d|3[01])[\/.-](?:0?[1-9]|1[0-2])[\/.-](?:19|20)\d{2})\b/giu;
     for(const m of text.matchAll(birth)) addFinding('Data di nascita','birthdate',m[1],page.pageNumber);
   }
 }
@@ -1051,21 +1162,7 @@ function nativeLines(page){
 
 function addAddressFromLine(line,pageNumber){
   if(!ENABLED_TYPES.address || !line) return;
-
-  const street=/\b(?:Via|Viale|Piazza|Corso|Largo|Vicolo|Strada|Località)\s*:?\s*(.+?)(?=\s+(?:n\.?|civ(?:ico)?\.?)\s*[0-9]|\s+\d{5}\b|$)/iu.exec(line);
-  if(street){
-    const streetValue=cleanNameCell(street[1]).replace(/[,:;.-]+$/,'');
-    if(streetValue.length>=2 && streetValue.length<=60) addFinding('Indirizzo','address',streetValue,pageNumber);
-    const civic=/\b(?:n\.?|civ(?:ico)?\.?)\s*([0-9]+(?:[\/-][A-Z0-9]+)?[A-Z]?)/iu.exec(line);
-    if(civic) addFinding('Indirizzo','address',civic[1],pageNumber);
-  }
-
-  const city=/\b(\d{5})\s*[-–]?\s*([A-ZÀ-ÖØ-Ý][A-ZÀ-ÖØ-Ý'’ -]{2,})(?:\s*\(([A-Z]{2})\))?/u.exec(line);
-  if(city){
-    addFinding('Indirizzo','address',city[1],pageNumber);
-    const locality=cleanNameCell(city[2])+(city[3]?' '+city[3]:'');
-    addFinding('Indirizzo','address',locality,pageNumber);
-  }
+  for(const value of completeAddresses(line)) addFinding('Indirizzo completo','address',value,pageNumber);
 }
 
 function addNativeAddresses(page){
@@ -1095,6 +1192,12 @@ function detectPage(page){
     }
   }
 
+  if(ENABLED_TYPES.name){
+    for(const label of text.matchAll(/\b(?:richiedente|sottoscritto|sottoscritta|cognome e nome)\s*:?\s+/giu)){
+      const value=text.slice(label.index+label[0].length).match(/^[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]+(?:\s+[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]+){1,3}/u)?.[0];
+      if(value && validPersonCandidate(value)) addFinding('Nome','name',value,page.pageNumber);
+    }
+  }
   addContextualIdentifiers(page,text);
   addStructuredNames(page);
   addOcrIdentityNames(page);
@@ -1102,6 +1205,9 @@ function detectPage(page){
   addRoleBasedNames(page,text);
   addOcrAddresses(page);
   addNativeAddresses(page);
+  if(ENABLED_TYPES.signature && page.signatureCandidate){
+    state.findings.push({id:crypto.randomUUID(),type:"Possibile firma: da confermare",key:"signature",value:"",page:page.pageNumber,manual:true,coords:page.signatureCandidate,enabled:false,pendingReview:true});
+  }
 }
 
 function addFinding(type,key,value,page){
@@ -1165,6 +1271,7 @@ function renderFindings(){
   if(!el) return;
   updateFindingPageFilterOptions();
   syncFindingFilterControls();
+  updateExportAvailability();
   const total=state.findings.length;
   const visible=filteredFindings();
   if(count) count.textContent=total ? `${visible.length} di ${total} rilevamenti` : '0 rilevamenti';
@@ -1182,12 +1289,21 @@ function renderFindings(){
   }
   el.className='findings';
   el.innerHTML=visible.map(f=>`<div class="finding ${f.enabled?'':'off'} ${f.manual?'manual-finding':''}" data-finding-row="${f.id}">
-    <label class="switch"><input type="checkbox" data-fid="${f.id}" ${f.enabled?'checked':''}><span></span></label>
+    <label class="switch"><input type="checkbox" data-fid="${f.id}" ${f.enabled?'checked':''} ${f.pendingReview?'disabled':''}><span></span></label>
     <div class="finding-main"><div class="finding-type">${escapeHtml(f.type)} • pag. ${f.page}</div>${f.manual
-      ? `<div class="manual-label">Area selezionata manualmente</div>`
+      ? `<div class="manual-label">${f.pendingReview?'Suggerimento da verificare, non riconoscimento della grafia.':f.key==='signature'?'Area firma: controlla che comprenda tutti i tratti.':'Area selezionata manualmente'}</div>`
       : `<input data-edit="${f.id}" value="${escapeHtml(f.value)}">`}</div>
-    ${f.manual?`<button class="remove-finding" data-remove="${f.id}" title="Elimina area">×</button>`:''}
+    ${f.pendingReview?`<button class="primary" data-confirm-signature="${f.id}">Oscura firma</button><button class="ghost" data-ignore-signature="${f.id}">Non e una firma</button>`:''}
+    ${f.manual && !f.pendingReview?`<button class="remove-finding" data-remove="${f.id}" title="Elimina area">×</button>`:''}
   </div>`).join('');
+  el.querySelectorAll('[data-confirm-signature],[data-ignore-signature]').forEach(button=>button.onclick=()=>{
+    const id=button.dataset.confirmSignature||button.dataset.ignoreSignature;
+    const finding=state.findings.find(f=>f.id===id);
+    if(!finding) return;
+    if(button.dataset.confirmSignature){finding.enabled=true;finding.pendingReview=false;finding.type='Firma confermata';}
+    else state.findings=state.findings.filter(f=>f.id!==id);
+    renderFindings();renderPreview(finding.page);
+  });
   el.querySelectorAll('[data-fid]').forEach(i=>i.onchange=e=>{
     const f=state.findings.find(x=>x.id===e.target.dataset.fid);
     if(!f) return;
@@ -1208,7 +1324,7 @@ function renderFindings(){
     state.findings=state.findings.filter(x=>x.id!==id);
     renderFindings();
     if(f) renderPreview(f.page);
-    document.querySelector('#exportBtn').disabled=state.findings.length===0;
+  updateExportAvailability();
   });
 }
 
@@ -1222,7 +1338,7 @@ async function renderPreview(pageNum){
   const pdf=await pdfjsLib.getDocument({data:state.pdfBytes.slice()}).promise;
   state.totalPages=pdf.numPages;
   const page=await pdf.getPage(pageNum);
-  const viewport=page.getViewport({scale:1.35});
+  const viewport=page.getViewport({scale:1.35,rotation:state.pages.find(p=>p.pageNumber===pageNum)?.rotation??page.rotate});
   const wrap=document.createElement('div'); wrap.className='canvas-wrap';
   wrap.style.width=`${state.previewZoom*100}%`;
   wrap.style.maxWidth='none';
@@ -1236,7 +1352,7 @@ async function renderPreview(pageNum){
   wrap.appendChild(overlay); preview.appendChild(wrap);
   document.querySelector('#pageLabel').textContent=`Pagina ${pageNum} di ${pdf.numPages}`;
 
-  const pageFindings=state.findings.filter(f=>f.enabled&&f.page===pageNum);
+  const pageFindings=state.findings.filter(f=>(f.enabled||f.pendingReview)&&f.page===pageNum);
   const tc=await page.getTextContent();
   const items=tc.items.filter(i=>i.str&&i.str.trim());
   for(const f of pageFindings){
@@ -1244,6 +1360,7 @@ async function renderPreview(pageNum){
       const box=appendManualBox(overlay,f.overrideCoords||f.coords,false);
       box.dataset.findingId=f.id;
       box.classList.add(f.manual?'manual-box':'adjusted-box');
+      if(f.pendingReview){box.classList.add('signature-candidate');box.textContent='Possibile firma: conferma nei rilevamenti';}
       continue;
     }
     const pd=state.pages.find(x=>x.pageNumber===pageNum);
@@ -1265,10 +1382,31 @@ function precisionConfig(){
   return {top:.88,height:.98,padX:1};
 }
 
+function nativePhraseItems(value,items){
+  const selected=new Set();
+  const needle=normalize(value);
+  if(!needle) return selected;
+  for(const line of nativeLines({items})){
+    let text='';const spans=[];
+    for(const item of line){
+      const start=text.length;
+      text+=normalize(item.str);
+      spans.push({item,start,end:text.length});text+=' ';
+    }
+    let offset=0,index;
+    while((index=text.indexOf(needle,offset))!==-1){
+      for(const span of spans) if(span.start<index+needle.length && span.end>index) selected.add(span.item);
+      offset=index+needle.length;
+    }
+  }
+  return selected;
+}
+
 function findRectsForFinding(f,items,viewport){
   const needle=normalize(f.value);
   if(!needle) return [];
   const cfg=precisionConfig();
+  const phraseItems=nativePhraseItems(f.value,items);
   const rects=[];
   for(const item of items){
     const istr=normalize(item.str);
@@ -1285,7 +1423,7 @@ function findRectsForFinding(f,items,viewport){
       x += fullW*ratioStart;
       w = Math.max(fontH*.7,fullW*ratioLen);
       matched=true;
-    }else if(needle.includes(istr) && istr.length>3){
+    }else if(phraseItems.has(item)){
       matched=true;
     }
     if(!matched) continue;
@@ -1306,18 +1444,19 @@ function ocrRectsForFinding(f,pageData){
   if(!needleJoined) return [];
   const rects=[];
   for(const words of ocrLines(pageData)){
-    const lineTokens=words.map(w=>foldToken(w.text)).filter(Boolean);
+    const alignedWords=words.filter(w=>foldToken(w.text));
+    const lineTokens=alignedWords.map(w=>foldToken(w.text));
     for(let i=0;i<lineTokens.length;i++){
       let joined='';
       let matchedCount=0;
-      const maxTake=Math.min(4,lineTokens.length-i);
+      const maxTake=Math.min(Math.max(4,needleTokens.length+2),lineTokens.length-i);
       for(let take=1;take<=maxTake;take++){
         joined+=lineTokens[i+take-1];
         if(joined===needleJoined){ matchedCount=take; break; }
         if(!needleJoined.startsWith(joined) && !joined.startsWith(needleJoined)) break;
       }
       if(!matchedCount) continue;
-      const matched=words.slice(i,i+matchedCount);
+      const matched=alignedWords.slice(i,i+matchedCount);
       const x0=Math.min(...matched.map(w=>w.bbox.x0));
       const y0=Math.min(...matched.map(w=>w.bbox.y0));
       const x1=Math.max(...matched.map(w=>w.bbox.x1));
@@ -1335,6 +1474,8 @@ function ocrRectsForFinding(f,pageData){
 }
 
 function resolveRectsForFinding(f,items,viewport,pageData){
+  const ocrRects=ocrRectsForFinding(f,pageData);
+  if(ocrRects.length) return ocrRects;
   const nativeRects=findRectsForFinding(f,items,viewport);
   if(nativeRects.length) return nativeRects;
   return ocrRectsForFinding(f,pageData);
@@ -1392,6 +1533,7 @@ function updatePreviewControls(){
   prev.disabled=!hasPdf || state.currentPage<=1;
   next.disabled=!hasPdf || state.currentPage>=state.totalPages;
   manual.disabled=!hasPdf;
+  document.querySelector('#signatureAreaBtn').disabled=!hasPdf;
   adjust.disabled=!hasPdf;
   zoom.disabled=!hasPdf;
   manual.classList.toggle('active',state.manualMode);
@@ -1406,6 +1548,7 @@ async function goToPage(page){
 }
 
 function toggleManualMode(){
+  state.manualKind='manual';
   if(!state.pdfBytes) return;
   state.manualMode=!state.manualMode;
   if(state.manualMode) state.adjustMode=false;
@@ -1447,9 +1590,9 @@ function applyManualDrawing(overlay){
     const p=point(e); const coords={x:Math.min(start.x,p.x),y:Math.min(start.y,p.y),w:Math.abs(p.x-start.x),h:Math.abs(p.y-start.y)};
     start=null; draft?.remove(); draft=null;
     if(coords.w<0.005||coords.h<0.003) return;
-    state.findings.push({id:crypto.randomUUID(),type:'Area manuale',key:'manual',value:'',page:state.currentPage,enabled:true,manual:true,coords});
+    state.findings.push({id:crypto.randomUUID(),type:state.manualKind==='signature'?'Firma manuale':'Area manuale',key:state.manualKind==='signature'?'signature':'manual',value:'',page:state.currentPage,enabled:true,manual:true,coords});
     renderFindings();
-    document.querySelector('#exportBtn').disabled=false;
+  updateExportAvailability();
     renderPreview(state.currentPage);
   };
   overlay.onpointerup=finish;
@@ -1517,7 +1660,7 @@ async function renderThumbnailStrip(){
   const pdf=await pdfjsLib.getDocument({data:state.pdfBytes.slice()}).promise;
   for(let p=1;p<=pdf.numPages;p++){
     const btn=document.createElement('button');btn.className='thumb';btn.dataset.page=String(p);btn.title=`Vai a pagina ${p}`;
-    const page=await pdf.getPage(p); const vp=page.getViewport({scale:.18});
+    const page=await pdf.getPage(p); const vp=page.getViewport({scale:.18,rotation:state.pages.find(pg=>pg.pageNumber===p)?.rotation??page.rotate});
     const c=document.createElement('canvas');c.width=Math.max(1,Math.ceil(vp.width));c.height=Math.max(1,Math.ceil(vp.height));
     await page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;
     const label=document.createElement('span');label.textContent=String(p);
@@ -1535,7 +1678,7 @@ function highlightActiveThumbnail(){
 function normalize(s){return (s||'').toLowerCase().replace(/\s+/g,' ').trim();}
 
 async function exportRedacted(){
-  if(!state.pdfBytes) return;
+  if(!canExport()) return;
   state.abort=false;
   state.currentStage='export';
   recordDiag('export_start','ok',{stage:'export',pages:state.totalPages,pdfType:state.pdfType,findings:state.findings.filter(f=>f.enabled).length});
@@ -1546,7 +1689,7 @@ async function exportRedacted(){
     for(let p=1;p<=src.numPages;p++){
       if(state.abort) throw new Error('Esportazione annullata');
       const page=await src.getPage(p);
-      const vp=page.getViewport({scale:2});
+      const vp=page.getViewport({scale:2,rotation:state.pages.find(pg=>pg.pageNumber===p)?.rotation??page.rotate});
       const canvas=document.createElement('canvas');canvas.width=Math.ceil(vp.width);canvas.height=Math.ceil(vp.height);
       const ctx=canvas.getContext('2d');
       await page.render({canvasContext:ctx,viewport:vp}).promise;
@@ -1559,12 +1702,15 @@ async function exportRedacted(){
           paintRedaction(ctx,f.overrideCoords||f.coords,vp);
           continue;
         }
-        for(const c of resolveRectsForFinding(f,items,vp,pd)) paintRedaction(ctx,c,vp);
+        const rects=resolveRectsForFinding(f,items,vp,pd);
+        if(!rects.length) throw new Error(`Pagina ${p}: un rilevamento attivo non ha un'area associata. Correggilo con un'area manuale prima di esportare.`);
+        for(const c of rects) paintRedaction(ctx,c,vp);
       }
       const png=await new Promise(res=>canvas.toBlob(res,'image/png',0.92));
       const pngBytes=new Uint8Array(await png.arrayBuffer());
       const img=await out.embedPng(pngBytes);
-      const op=out.addPage([vp.width,vp.height]); op.drawImage(img,{x:0,y:0,width:vp.width,height:vp.height});
+      const width=vp.width/vp.scale,height=vp.height/vp.scale;
+      const op=out.addPage([width,height]); op.drawImage(img,{x:0,y:0,width,height});
       progress(10+(p/src.numPages)*80,`Anonimizzazione pagina ${p}/${src.numPages}…`);
     }
     state.outputBytes=await out.save();
@@ -1580,15 +1726,17 @@ async function exportRedacted(){
   }catch(err){
     const code=safeErrorCode('export',err);
     recordDiag('export_failed','error',{stage:'export',code,pages:state.totalPages,pdfType:state.pdfType});
-    updateAnalysisHint('Esportazione non completata. Nessun documento è stato inviato online. Puoi riprovare o segnalare il problema.','error');
+    updateAnalysisHint(err.message || 'Esportazione non completata. Controlla le aree prima di riprovare.','error');
     progress(100,err.message||'Errore esportazione');
   }
   finally{setBusy(false);}
 }
 
 async function resetSession(){
+  if(state.busy) return;
   state.abort=true;
   if(state.ocrWorker){ try{await state.ocrWorker.terminate();}catch{} state.ocrWorker=null; }
+  state.documents.clear();
   state.files=[];state.findings=[];state.pages=[];state.pdfBytes=null;state.outputBytes=null;state.currentIndex=0;state.currentPage=1;state.totalPages=0;state.manualMode=false; state.adjustMode=false;state.filters={type:'all',status:'all',page:'all',search:''};
   state.wizardStep=1;state.pdfType='unknown';state.currentStage='idle';state.analysisWarnings=[];state.diagEvents=[];
   Object.assign(ENABLED_TYPES,PROFILES.standard.types);

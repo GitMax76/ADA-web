@@ -4,6 +4,12 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      release_ref:
+        description: 'Git ref to deploy (main or a rollback tag)'
+        required: true
+        default: main
+        type: string
 
 permissions:
   contents: read
@@ -17,12 +23,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.release_ref || github.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
       - run: npm ci
       - run: npm run check
+      - run: npm run test:unit --if-present
       - run: npm run build
       - run: npm run test:build
       - run: npx playwright test
