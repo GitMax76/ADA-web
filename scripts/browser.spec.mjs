@@ -125,9 +125,8 @@ test('medical-style identity fields are detected without treating clinical label
   expect(values).toContain('14/02/1976');
   expect(values).toContain('RSSMRA76B14H703X');
   expect(values).toContain('ROSSI MARIO');
-  expect(values).toContain('GELSO');
-  expect(values).toContain('12/A');
-  expect(values).toContain('84100');
+  expect(values).toContain('Via: GELSO n 12/A');
+  expect(values).toContain('84100 - SALERNO (SA)');
 
   for (const falsePositive of [
     'Immunoematologia Trasfusionale',
