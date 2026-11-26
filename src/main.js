@@ -72,7 +72,7 @@ function escapeHtml(s='') {
 }
 
 
-const APP_VERSION='0.3.5-beta RULES-2026-TEST';
+const APP_VERSION='0.3.6-beta RULES-2026-TEST';
 const BUG_REPO_URL='https://github.com/GitMax76/ADA-web/issues/new';
 const DIAG_MAX=20;
 const OCR_INIT_TIMEOUT=60000;
@@ -412,7 +412,7 @@ function render() {
           ${chip('cf','Codice fiscale')}${chip('personalid','ID personale')}${chip('birthdate','Data di nascita')}${chip('protocol','Protocollo / ID')}${chip('iban','IBAN')}${chip('email','Email / PEC (anche istituzionali)')}${chip('phone','Telefono')}${chip('piva','P. IVA')}${chip('name','Nomi')}${chip('signature','Firme: suggerisci aree')}${chip('address','Indirizzi')}${chip('date','Altre date')}${chip('amount','Importi / valori')}
         </div>
         <div class="setting-row">
-          <label><input type="checkbox" id="ocrToggle" ${state.ocrEnabled?'checked':''}> OCR e orientamento su tutte le pagine (più lento)</label>
+          <label><input type="checkbox" id="ocrToggle" ${state.ocrEnabled?'checked':''}> OCR automatico solo quando necessario</label>
         </div>
         <div class="setting-row">
           <label for="redactionMode">Stile oscuramento</label>
@@ -769,7 +769,7 @@ function analysisIsCurrent(){
   return state.analysisSettings===JSON.stringify({types:ENABLED_TYPES,ocr:state.ocrEnabled});
 }
 function canExport(){
-  return !state.busy && !!state.pdfBytes && state.findings.some(f=>f.enabled) && analysisIsCurrent() && !state.findings.some(f=>f.pendingReview);
+  return !state.busy && !!state.pdfBytes && state.findings.some(f=>f.enabled) && analysisIsCurrent() && !state.findings.some(f=>f.pendingReview && f.enabled);
 }
 function updateExportAvailability(){
   const button=document.querySelector('#exportBtn');
@@ -838,7 +838,10 @@ async function analyzeCurrent(){
       const pageData={pageNumber:p,viewport,items,text,ocrText:'',ocrWords:[]};
 
       pageData.rotation=page.rotate;
-      if(state.ocrEnabled){
+      const nativeTextLength=text.replace(/\s+/g,'').length;
+      const needsOcr=state.ocrEnabled && nativeTextLength<80;
+      pageData.usedOcr=needsOcr;
+      if(needsOcr){
         let finalCanvas=null;
         try{
           if(!state.ocrWorker){
@@ -882,8 +885,10 @@ async function analyzeCurrent(){
           state.analysisWarnings.push(`OCR pagina ${p}: ${code}. Revisione manuale necessaria`);
           try{await state.ocrWorker?.terminate();}catch{}state.ocrWorker=null;
         }
-      }else if(text.trim().length<25){
-        state.analysisWarnings.push(`Pagina ${p} senza testo: OCR disattivato`);
+      }else if(!state.ocrEnabled && nativeTextLength<80){
+        state.analysisWarnings.push(`Pagina ${p} con testo insufficiente: OCR disattivato`);
+      }else if(state.ocrEnabled && !needsOcr){
+        recordDiag('ocr_skipped_native_text','ok',{stage:'analysis',page:p,pages:pdf.numPages});
       }
       if(state.abort) throw new Error('Operazione annullata');
       state.pages.push(pageData);
@@ -1210,7 +1215,11 @@ function detectPage(page){
 
   // Modulo sperimentale Indicazioni 2026: aggiunge finding contestuali
   // oscurando il valore associato alla sigla e non la sigla stessa.
-  for(const rf of detectIndicazioni2026({text,pageNumber:page.pageNumber})){
+  const rulesLines = page.ocrWords?.length
+    ? ocrLines(page).map(words=>words.map(w=>w.text).join(' ').replace(/\s+/g,' ').trim()).filter(Boolean)
+    : nativeLines(page).map(items=>items.map(i=>i.str).join(' ').replace(/\s+/g,' ').trim()).filter(Boolean);
+  const ruleFindings = detectIndicazioni2026({text,pageNumber:page.pageNumber,lines:rulesLines});
+  for(const rf of ruleFindings){
     addFinding(rf.type,rf.key,rf.value,rf.page,{
       ruleId:rf.ruleId,
       confidence:rf.confidence,
