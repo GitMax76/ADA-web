@@ -23,7 +23,7 @@ const NAME = `${NAME_WORD}(?:\\s+${NAME_WORD}){0,3}`;
 
 function push(out, page, type, key, value, ruleId, confidence='high', origin='', strategy='label-value') {
   value = normalizeSpace(value || '').replace(/^[,;:\-–]+|[,;:\-–]+$/g,'');
-  if (!value || value.length < 2) return;
+  if (!value || (value.length < 2 && !/^\d$/.test(value))) return;
   out.push({page,type,key,value,ruleId,confidence,origin,strategy});
 }
 
