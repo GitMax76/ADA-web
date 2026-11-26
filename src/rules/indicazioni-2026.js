@@ -101,14 +101,27 @@ function detectAdmin(text,page,out){
   for(const [type,key,id,re,conf] of defs) for(const m of text.matchAll(re)) push(out,page,type,key,m[1],id,conf,type,'label-value');
 }
 
-export function detectIndicazioni2026({text='',pageNumber=1}={}){
+export function detectIndicazioni2026({text='',pageNumber=1,lines=[]}={}){
   const out=[];
   const clean=normalizeSpace(text);
+  const safeLines=(lines||[]).map(normalizeSpace).filter(Boolean);
+
+  // Le regole che identificano entità possono usare il contesto complessivo della pagina.
   detectPeople(clean,pageNumber,out);
   detectLegal(clean,pageNumber,out);
   detectContacts(clean,pageNumber,out);
-  detectCadastral(clean,pageNumber,out);
-  detectAdmin(clean,pageNumber,out);
+
+  // Dati catastali e identificativi amministrativi devono invece restare confinati
+  // alla stessa riga: evita di catturare il numero della riga successiva in una tabella.
+  if(safeLines.length){
+    for(const line of safeLines){
+      detectCadastral(line,pageNumber,out);
+      detectAdmin(line,pageNumber,out);
+    }
+  }else{
+    detectCadastral(clean,pageNumber,out);
+    detectAdmin(clean,pageNumber,out);
+  }
   return out;
 }
 
