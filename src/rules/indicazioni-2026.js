@@ -78,7 +78,7 @@ function detectContacts(text,page,out){
 }
 
 function detectCadastral(text,page,out){
-  const cadastralValue=String.raw`(?:\\d+|[A-Z])(?:\\s*(?:-|,|\\be\\b)\\s*(?:\\d+|[A-Z]))*`;
+  const cadastralValue=String.raw`(?:\\d+(?:\\s*(?:-|,|\\be\\b)\\s*\\d+)*|[A-Z])`;
   const patterns=[
     ['Foglio','cadastral','IND2026_FG',new RegExp(String.raw`\\b(?:FG|FG\\.|FGL|FOGLIO)\\s*[:\\-]?\\s*(${cadastralValue})\\b`,'giu')],
     ['Particella','cadastral','IND2026_PLLA',new RegExp(String.raw`\\b(?:PLLA|PLLA\\.|PLLE|PART\\.?|PARTICELLA|PARTICELLE|P\\.?\\s*LLA)\\s*[:\\-]?\\s*(${cadastralValue})\\b`,'giu')],
