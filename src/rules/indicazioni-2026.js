@@ -95,7 +95,6 @@ function detectAdmin(text,page,out){
     ['Repertorio','adminid','IND2026_REP',/\b(?:REP\.?|REPERTORIO)\s*(?:N\.?|NR\.?)?\s*[:.\-]?\s*([A-Z0-9][A-Z0-9./\-]{1,30})/giu,'medium'],
     ['Raccolta','adminid','IND2026_RACC',/\b(?:RACC\.?|RACCOLTA)\s*(?:N\.?|NR\.?)?\s*[:.\-]?\s*([A-Z0-9][A-Z0-9./\-]{1,30})/giu,'medium'],
     ['Registro generale','adminid','IND2026_RG',/\b(?:R\.?\s*G\.?)\s*(?:N\.?|NR\.?)?\s*[:.\-]?\s*([0-9][0-9./\-]{1,30})/giu,'medium'],
-    ['CUP','cup','IND2026_CUP',/\bCUP\s*[:.\-]?\s*([A-Z0-9]{15})\b/giu,'high'],
     ['CIG','cig','IND2026_CIG',/\bCIG\s*[:.\-]?\s*([A-Z0-9]{10})\b/giu,'high'],
     ['SCIA','adminid','IND2026_SCIA',/\b(?:SCIA|S\.?\s*C\.?\s*I\.?\s*A\.?)\s*(?:N\.?|NR\.?|PRATICA)?\s*[:.\-]?\s*([A-Z0-9][A-Z0-9_./\-]{2,40})\b/giu,'medium'],
   ];
