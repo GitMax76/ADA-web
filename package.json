@@ -1,6 +1,6 @@
 {
   "name": "ada-web",
-  "version": "0.3.4-beta",
+  "version": "0.3.6-beta-rules-2026-test",
   "private": true,
   "type": "module",
   "scripts": {
