@@ -1,0 +1,26 @@
+name: Package Rules 2026 Test
+
+on:
+  push:
+    branches: [rules-2026-test]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare package
+        run: |
+          rm -rf package
+          mkdir package
+          rsync -a --exclude '.git' --exclude '.github/workflows/package-rules-test.yml' ./ package/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ADA_WEB_0.3.5-beta_RULES-2026-TEST
+          path: package
+          if-no-files-found: error
+          retention-days: 14
