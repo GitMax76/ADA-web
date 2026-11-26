@@ -5,6 +5,7 @@ import { PDFDocument } from 'pdf-lib';
 import { createWorker } from 'tesseract.js';
 import { recognizeOrientedPage } from './ocr-layout.js';
 import { completeAddresses, signatureSuggestion } from './contact-regions.js';
+import { detectIndicazioni2026, RULES_2026 } from './rules/indicazioni-2026.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
@@ -71,7 +72,7 @@ function escapeHtml(s='') {
 }
 
 
-const APP_VERSION='0.3.4-beta';
+const APP_VERSION='0.3.5-beta RULES-2026-TEST';
 const BUG_REPO_URL='https://github.com/GitMax76/ADA-web/issues/new';
 const DIAG_MAX=20;
 const OCR_INIT_TIMEOUT=60000;
@@ -366,6 +367,7 @@ function render() {
     </header>
 
     <main class="layout">
+      <div class="rules2026-test-banner">🧪 <strong>Test locale Regole 2026</strong> · modulo sperimentale attivo · nessuna modifica alla versione pubblica.</div>
       <nav class="wizard-stepper" aria-label="Percorso guidato">
         <div data-wizard-step="1" class="wizard-step active"><span>1</span><b>Carica</b></div>
         <div data-wizard-step="2" class="wizard-step"><span>2</span><b>Configura</b></div>
@@ -1205,14 +1207,34 @@ function detectPage(page){
   addRoleBasedNames(page,text);
   addOcrAddresses(page);
   addNativeAddresses(page);
+
+  // Modulo sperimentale Indicazioni 2026: aggiunge finding contestuali
+  // oscurando il valore associato alla sigla e non la sigla stessa.
+  for(const rf of detectIndicazioni2026({text,pageNumber:page.pageNumber})){
+    addFinding(rf.type,rf.key,rf.value,rf.page,{
+      ruleId:rf.ruleId,
+      confidence:rf.confidence,
+      origin:rf.origin,
+      strategy:rf.strategy,
+      ruleset:RULES_2026.version
+    });
+  }
+
   if(ENABLED_TYPES.signature && page.signatureCandidate){
     state.findings.push({id:crypto.randomUUID(),type:"Possibile firma: da confermare",key:"signature",value:"",page:page.pageNumber,manual:true,coords:page.signatureCandidate,enabled:false,pendingReview:true});
   }
 }
 
-function addFinding(type,key,value,page){
-  if(!value || value.length<3) return;
-  state.findings.push({id:crypto.randomUUID(),type,key,value:value.trim(),page,enabled:true});
+function addFinding(type,key,value,page,meta={}){
+  if(!value || value.length<2) return;
+  state.findings.push({
+    id:crypto.randomUUID(),type,key,value:value.trim(),page,enabled:true,
+    ruleId:meta.ruleId||null,
+    confidence:meta.confidence||null,
+    origin:meta.origin||null,
+    strategy:meta.strategy||null,
+    ruleset:meta.ruleset||null
+  });
 }
 function dedupeFindings(){
   const seen=new Set();
