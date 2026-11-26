@@ -33,7 +33,7 @@ function detectPeople(text,page,out){
   for(const m of text.matchAll(titled)) {
     const candidate=normalizeSpace(m[2]);
     if(!/^(DI|DE|DA|DEL|DELLA|IL|LA)$/i.test(candidate)) {
-      push(out,page,'Nome','name',candidate,'IND2026_PERSON_TITLE','high',m[1],'label-value');
+      push(out,page,'Nome (regola 2026)','name',candidate,'IND2026_PERSON_TITLE','medium',m[1],'label-value');
     }
   }
 
@@ -59,7 +59,7 @@ function detectLegal(text,page,out){
   const stop=/\b(?:COMUNE|MINISTERO|REGIONE|PROVINCIA|AMMINISTRAZIONE|CHIESA|VIA|PIAZZA|CORSO)\b/i;
   for(const m of text.matchAll(company)){
     const name=normalizeSpace(m[1]);
-    if(!stop.test(name) && /[A-ZÀ-ÖØ-Ý]{2}/u.test(name)) {
+    if(!stop.test(name) && !/\b(?:VIA|VIALE|PIAZZA|CORSO)\b/i.test(name) && /[A-ZÀ-ÖØ-Ý]{2}/u.test(name)) {
       push(out,page,'Persona giuridica','legalentity',name+' '+normalizeSpace(m[2]),'IND2026_LEGAL_FORM','medium',m[2],'entity-with-suffix');
     }
   }
@@ -78,10 +78,11 @@ function detectContacts(text,page,out){
 }
 
 function detectCadastral(text,page,out){
+  const cadastralValue=String.raw`(?:\\d+|[A-Z])(?:\\s*(?:-|,|\\be\\b)\\s*(?:\\d+|[A-Z]))*`;
   const patterns=[
-    ['Foglio','cadastral','IND2026_FG',/\b(?:FG|FG\.|FGL|FOGLIO)\s*[:\-]?\s*([A-Z0-9]+)\b/giu],
-    ['Particella','cadastral','IND2026_PLLA',/\b(?:PLLA|PLLA\.|PLLE|PART\.?|PARTICELLA|PARTICELLE|P\.?\s*LLA)\s*[:\-]?\s*([A-Z0-9]+(?:\s*[-,e]\s*[A-Z0-9]+){0,12})/giu],
-    ['Subalterno','cadastral','IND2026_SUB',/\b(?:SUB|SUB\.|SUBB|SUBB\.|SUBALTERNO)\s*[:\-]?\s*([A-Z0-9]+(?:\s*[-,e]\s*[A-Z0-9]+){0,12})/giu],
+    ['Foglio','cadastral','IND2026_FG',new RegExp(String.raw`\\b(?:FG|FG\\.|FGL|FOGLIO)\\s*[:\\-]?\\s*(${cadastralValue})\\b`,'giu')],
+    ['Particella','cadastral','IND2026_PLLA',new RegExp(String.raw`\\b(?:PLLA|PLLA\\.|PLLE|PART\\.?|PARTICELLA|PARTICELLE|P\\.?\\s*LLA)\\s*[:\\-]?\\s*(${cadastralValue})\\b`,'giu')],
+    ['Subalterno','cadastral','IND2026_SUB',new RegExp(String.raw`\\b(?:SUB|SUB\\.|SUBB|SUBB\\.|SUBALTERNO)\\s*[:\\-]?\\s*(${cadastralValue})\\b`,'giu')],
   ];
   for(const [type,key,id,re] of patterns) for(const m of text.matchAll(re)) push(out,page,type,key,m[1],id,'high',id.split('_').pop(),'label-value');
 
