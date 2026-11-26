@@ -1,0 +1,5 @@
+A.D.A. Web 0.3.5-beta RULES-2026-TEST
+Branch sperimentale locale: rules-2026-test
+CUP: NON oscurato.
+Regole 2026 modulari attive.
+Non destinato al deploy GitHub Pages.
