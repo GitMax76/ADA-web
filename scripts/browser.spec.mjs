@@ -219,3 +219,57 @@ test('medical footer signatories and redaction selector remain robust and readab
   expect(mobileBox.width).toBeGreaterThan(250);
   expect(mobileBox.width).toBeLessThanOrEqual(390);
 });
+
+
+test('13-page native-text table stays fast, keeps row ids visible and exports', async ({ page }) => {
+  await page.goto('/ADA-web/');
+  if (await page.locator('#policyModal').isVisible().catch(()=>false)) {
+    for (const section of await page.locator('[data-policy-section] summary').all()) await section.click();
+    await page.locator('#policyConfirm').check();
+    await page.locator('#policyAcceptBtn').click();
+  }
+
+  const pdf = await PDFDocument.create();
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  for (let pno=1; pno<=13; pno++) {
+    const p=pdf.addPage([842,595]);
+    const rows=[
+      ['27832','Richiesta autorizzazione - PROT. 25919'],
+      ['27826','Amalfi SA - pratica catastale Fg 5 plla 1820'],
+      ['27825','Opera pubblica - CUP D67J25000090005 - CIG BD83A6DC73'],
+    ];
+    let y=540;
+    for(const [id,desc] of rows){
+      p.drawText(id,{x:30,y,font,size:10});
+      p.drawText(desc,{x:110,y,font,size:10});
+      y-=32;
+    }
+  }
+  const started=Date.now();
+  await page.locator('#fileInput').setInputFiles({
+    name:'table-13-pages.pdf',
+    mimeType:'application/pdf',
+    buffer:Buffer.from(await pdf.save())
+  });
+  // OCR remains enabled: native text pages must skip it automatically.
+  await expect(page.locator('#ocrToggle')).toBeChecked();
+  await page.locator('#analyzeBtn').click();
+  await expect(page.locator('#progressLabel')).toContainText('Completato',{timeout:20000});
+  expect(Date.now()-started).toBeLessThan(20000);
+
+  const values=await page.locator('[data-edit]').evaluateAll(nodes=>nodes.map(n=>n.value));
+  expect(values).toContain('25919');
+  expect(values).toContain('5');
+  expect(values).toContain('1820');
+  expect(values).toContain('BD83A6DC73');
+  expect(values).not.toContain('D67J25000090005');
+  expect(values).not.toContain('27832');
+  expect(values).not.toContain('27826');
+  expect(values).not.toContain('27825');
+
+  await expect(page.locator('#exportBtn')).toBeEnabled();
+  const downloadPromise=page.waitForEvent('download');
+  await page.locator('#exportBtn').click();
+  const download=await downloadPromise;
+  expect(download.suggestedFilename()).toBe('table-13-pages_ANONIMIZZATO.pdf');
+});
