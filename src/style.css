@@ -387,3 +387,5 @@ body.ada-compact-review .remove-finding{width:40px;height:40px;font-size:22px}
 .finding:has([data-confirm-signature]){opacity:1;border:2px solid #b45309;flex-wrap:wrap}
 .redaction-box:not(.signature-candidate):not(.draft){opacity:1}
 .chip input{display:inline-block;margin:0 5px 0 0;accent-color:var(--blue)}
+
+.rules2026-test-banner{grid-column:1/-1;margin:0 0 6px;padding:10px 12px;border:1px solid #d9c98c;border-radius:12px;background:#fff8dc;color:#5e4d12;font-size:12px;line-height:1.4}.rules2026-test-banner strong{color:#3d3210}
