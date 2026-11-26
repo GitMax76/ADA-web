@@ -1,5 +1,8 @@
-A.D.A. Web 0.3.5-beta RULES-2026-TEST
+A.D.A. Web 0.3.6-beta RULES-2026-TEST
 Branch sperimentale locale: rules-2026-test
 CUP: NON oscurato.
-Regole 2026 modulari attive.
+OCR: automatico solo sulle pagine che ne hanno bisogno.
+Regole amministrative/catastali: rilevamento confinato alla singola riga per evitare numeri della prima colonna.
+Export: i suggerimenti firma non confermati e disattivati non bloccano più il download.
+Icona header: box esterno rimosso, centratura corretta.
 Non destinato al deploy GitHub Pages.
