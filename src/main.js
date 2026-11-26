@@ -1236,7 +1236,8 @@ function detectPage(page){
 }
 
 function addFinding(type,key,value,page,meta={}){
-  if(!value || value.length<2) return;
+  const allowSingleDigit=!!meta.ruleId && /^IND2026_(FG|PLLA|SUB)$/.test(meta.ruleId) && /^\d$/.test(String(value||'').trim());
+  if(!value || (value.length<2 && !allowSingleDigit)) return;
   state.findings.push({
     id:crypto.randomUUID(),type,key,value:value.trim(),page,
     enabled:meta.enabled===undefined?true:!!meta.enabled,
