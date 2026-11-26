@@ -1216,7 +1216,8 @@ function detectPage(page){
       confidence:rf.confidence,
       origin:rf.origin,
       strategy:rf.strategy,
-      ruleset:RULES_2026.version
+      ruleset:RULES_2026.version,
+      enabled:rf.confidence!=='medium'
     });
   }
 
@@ -1228,7 +1229,8 @@ function detectPage(page){
 function addFinding(type,key,value,page,meta={}){
   if(!value || value.length<2) return;
   state.findings.push({
-    id:crypto.randomUUID(),type,key,value:value.trim(),page,enabled:true,
+    id:crypto.randomUUID(),type,key,value:value.trim(),page,
+    enabled:meta.enabled===undefined?true:!!meta.enabled,
     ruleId:meta.ruleId||null,
     confidence:meta.confidence||null,
     origin:meta.origin||null,
