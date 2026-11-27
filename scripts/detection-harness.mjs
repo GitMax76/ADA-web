@@ -2,11 +2,13 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import {webcrypto} from 'node:crypto';
 import {completeAddresses} from '../src/contact-regions.js';
+import {detectIndicazioni2026, RULES_2026} from '../src/rules/indicazioni-2026.js';
 
+import {TRANSPARENCY_TYPES,nativeAtoms,ocrAtoms,detectOccurrences,rectsForSpan} from '../src/rules/transparency.js';
 // Exercise the actual application recognizers without a browser or personal fixtures in Git.
 export function detectionHarness(){
   const source=fs.readFileSync(new URL('../src/main.js',import.meta.url),'utf8');
-  const context=vm.createContext({crypto:webcrypto,completeAddresses,state:{findings:[],precisionMode:'precise',redactionMode:'black'}});
+  const context=vm.createContext({crypto:webcrypto,completeAddresses,detectIndicazioni2026,RULES_2026,TRANSPARENCY_TYPES,nativeAtoms,ocrAtoms,detectOccurrences,rectsForSpan,state:{findings:[],precisionMode:'precise',redactionMode:'black'}});
   const constants=source.slice(source.indexOf('const PATTERNS ='),source.indexOf('function escapeHtml'));
   const detectors=source.slice(source.indexOf('function extractOcrWords'),source.indexOf('function syncFindingFilterControls'));
   const rects=source.slice(source.indexOf('function ocrRectsForFinding'),source.indexOf('function resolveRectsForFinding'));
@@ -19,7 +21,7 @@ export function detectionHarness(){
       context.state.findings=[];
       const page={pageNumber:1,items:[],text:'',ocrText:data.text,ocrWords:context.extractOcrWords(data),viewport};
       context.detectPage(page);context.dedupeFindings();
-      return context.state.findings.map(f=>({...f,rects:context.ocrRectsForFinding(f,page)}));
+      return context.state.findings.map(f=>({...f,rects:f.rects||context.ocrRectsForFinding(f,page)}));
     },
     addresses(line){
       context.state.findings=[];context.addAddressFromLine(line,1);
