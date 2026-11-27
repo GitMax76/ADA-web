@@ -96,3 +96,10 @@ test('toponyms and organizations after a role are kept out of the list of people
   assert.deepEqual(namesIn(text).map(f=>f.value),['Don Marco Costa']);
   assert.deepEqual(namesIn('Prima indicazione: Piazza Prof Guido Ferro',TRANSPARENCY_TYPES,false),[]);
 });
+
+test('a context rule preserves a professional title when titles are disabled',()=>{
+  const text='Medico Dr Bianchi';
+  const selected=namesIn(text,{...TRANSPARENCY_TYPES,title:false},false);
+  assert.deepEqual(selected.map(f=>text.slice(f.start,f.end)),['Bianchi']);
+  assert.deepEqual(namesIn(text,TRANSPARENCY_TYPES,false).map(f=>f.value),['Dr Bianchi']);
+});
