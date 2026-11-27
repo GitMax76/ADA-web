@@ -1,3 +1,7 @@
+# A.D.A. Web — 0.3.8-beta
+
+La 0.3.8-beta aggiunge il profilo **Trasparenza / Pubblicazione**, il riconoscimento di più nominativi nello stesso oggetto e riquadri agganciati alle singole occorrenze. I pulsanti **Seleziona tutti** e **Deseleziona tutti** agiscono sui rilevamenti mostrati dai filtri.
+
 # A.D.A. Web — 0.3.1-beta
 Anonimizzatore Documenti Autonomo. Release **GitHub Pages Ready**, derivata dal codice originale **0.1.9-beta No Nested Scroll**.
 
@@ -39,7 +43,7 @@ Anonimizzatore Documenti Autonomo. Release **GitHub Pages Ready**, derivata dal 
 ## Privacy e limiti
 L'app elabora i PDF nel browser: non include backend, upload, telemetria o salvataggio dei documenti nella repository. I file selezionati restano nella sessione; il risultato viene scaricato sul dispositivo. LocalStorage conserva l'accettazione delle informative.
 
-GitHub ospita il codice e gli asset e riceve le normali richieste HTTP del sito. L'OCR della 0.1.9 scarica a richiesta worker, motore WASM e modello italiano dai servizi configurati da Tesseract.js (jsDelivr e tessdata.projectnaptha.com); non invia i PDF. **L'OCR richiede connettività e non è garantito offline.** La PWA conserva invece l'interfaccia e il worker PDF per riaprire e usare PDF testuali offline dopo una prima installazione completa.
+GitHub ospita il codice e gli asset. I documenti vengono elaborati sul dispositivo. L'OCR scarica al bisogno il worker, il motore WASM e il modello italiano dai servizi configurati da Tesseract.js. Per i PDF testuali, la PWA conserva l'interfaccia e il worker PDF per l'uso offline dopo l'installazione.
 
 Il rilevamento è euristico: occorre controllare e correggere le aree prima di esportare. L'output contiene immagini con oscuramenti incorporati nei pixel e perde il testo ricercabile. Questa release corregge inoltre gli a capo CSS malformati del blocco No Nested Scroll originale e stabilizza il ResizeObserver per evitare oscillazioni del layout e conserva gli algoritmi della 0.1.9; non costituisce una validazione della completezza dell'anonimizzazione. Non è un prodotto ufficiale del Ministero della Cultura.
 

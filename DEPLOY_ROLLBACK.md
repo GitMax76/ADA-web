@@ -7,18 +7,18 @@ outside this repository.
 
 ## Restore the previous production release
 
-The last successful deployment before 0.3.4-beta was commit
-`c62a340f66313ed12abd957fbbadad59a60319b6`.
-Its preserved tag is `rollback/pre-0.3.4-20261007`.
+The 0.3.4-beta revision immediately before 0.3.8-beta is commit
+`fe3ca6f2c918754bc63f9e4a0fdbecbc95226e78`.
+The recovery branch is `rollback/pre-0.3.8-20261127`.
 
 In GitHub Actions, select **Deploy GitHub Pages**, **Run workflow**, branch
-**main**, and set **release_ref** to that tag. The workflow checks out the tagged
+**main**, and set **release_ref** to that recovery branch. The workflow checks out the saved
 source and lockfile, builds, tests and deploys it without rewriting main history.
 
 Equivalent command:
 
 ```sh
-gh workflow run deploy.yml --repo GitMax76/ADA-web --ref main -f release_ref=rollback/pre-0.3.4-20261007
+gh workflow run deploy.yml --repo GitMax76/ADA-web --ref main -f release_ref=rollback/pre-0.3.8-20261127
 ```
 
 Wait for the deploy job to succeed and check the live page. A rollback does not

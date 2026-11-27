@@ -1,3 +1,20 @@
+# 0.3.8-beta
+
+- Rilevamento dei nominativi negli oggetti amministrativi, anche in elenchi e accanto a qualifiche.
+- Riquadri calcolati per occorrenza con la spaziatura del PDF, quando disponibile.
+- Selezione e deselezione in blocco dei rilevamenti filtrati.
+
+- Nominativi senza titolo in allacciamenti, clienti, titolari e atti di compravendita; cognomi con apostrofo finale.
+- Nomi e titoli distribuiti su due righe, con rettangoli separati.
+- Ditte individuali e denominazioni commerciali anche senza forma societaria, ragioni sociali precedute da contesto e forme precedenti.
+- Conservate le esclusioni del preset Trasparenza. Candidati ambigui proposti non selezionati.
+- Verifiche unitari e simulazione geometrica indipendente sui due originali; build e browser non verificati in questo ambiente.
+
+# 0.3.7-beta — Transparency & Precision (test locale)
+
+- Preset Trasparenza confermato, coordinate per occorrenza, protezione delle colonne, nuove categorie esplicite.
+- Aggiunti test geometrici e pixel; build e test browser ancora da verificare. Vedere `REPORT_TEST_0.3.7.md`.
+
 # 0.3.1-beta — OCR Precision & Shared Redaction Geometry
 
 - Preview ed export condividono la stessa geometria di oscuramento.

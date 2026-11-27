@@ -20,7 +20,10 @@ export function completeAddresses(line) {
       if (name) values.push((prefix[0] + name[0]).trim());
     }
   }
-  for (const match of line.matchAll(new RegExp(String.raw`\b${postalTail}`, 'gu'))) {
+  // CAP/località senza una via: richiediamo almeno un separatore o la provincia.
+  // Evita di interpretare i numeri progressivi di una tabella (es. "27832 Richiesta...") come CAP.
+  const standalonePostal = new RegExp(String.raw`\b\d{5}(?:(?:\s*[,\-\u2013]\s*)${city}(?:\s*\([A-Z]{2}\))?|\s+${city}\s*\([A-Z]{2}\))`, 'gu');
+  for (const match of line.matchAll(standalonePostal)) {
     if (!values.some(value => value.includes(match[0]))) values.push(match[0]);
   }
   return values;

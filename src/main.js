@@ -5,6 +5,9 @@ import { PDFDocument } from 'pdf-lib';
 import { createWorker } from 'tesseract.js';
 import { recognizeOrientedPage } from './ocr-layout.js';
 import { completeAddresses, signatureSuggestion } from './contact-regions.js';
+import { detectIndicazioni2026, RULES_2026 } from './rules/indicazioni-2026.js';
+import { TRANSPARENCY_TYPES, nativeAtoms, ocrAtoms, detectOccurrences, rectsForSpan, detectLine } from './rules/transparency.js';
+import { pdfGlyphWidths, measurePdfGlyphs } from './pdf-glyph-widths.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
@@ -63,7 +66,7 @@ const PATTERNS = [
 
 const ENABLED_TYPES = {
   cf: true, personalid: true, birthdate: true, protocol: true, iban: true, email: true,
-  piva: true, phone: true, date: false, amount: false, name: true, address: true, signature: true
+  piva: true, phone: true, date: false, amount: false, name: true, address: true, signature: true, cadastral:true, legalentity:true, title:false, cig:true, cup:false, adminid:true, rea:true, ipa:true
 };
 
 function escapeHtml(s='') {
@@ -71,16 +74,16 @@ function escapeHtml(s='') {
 }
 
 
-const APP_VERSION='0.3.4-beta';
+const APP_VERSION='0.3.8-beta';
 const BUG_REPO_URL='https://github.com/GitMax76/ADA-web/issues/new';
 const DIAG_MAX=20;
 const OCR_INIT_TIMEOUT=60000;
 const OCR_PAGE_TIMEOUT=90000;
 
 const PROFILES={
-  standard:{label:'Standard',types:{cf:true,personalid:true,birthdate:true,protocol:true,iban:true,email:true,piva:true,phone:true,name:true,address:true,signature:true,date:false,amount:false}},
-  transparency:{label:'Trasparenza / Pubblicazione',types:{cf:true,personalid:true,birthdate:true,protocol:true,iban:true,email:true,piva:true,phone:true,name:true,address:true,signature:true,date:true,amount:false}},
-  ai:{label:'Dataset / AI / Ricerca',types:{cf:true,personalid:true,birthdate:true,protocol:true,iban:true,email:true,piva:true,phone:true,name:true,address:true,signature:true,date:true,amount:true}},
+  standard:{label:'Standard',types:{cf:true,personalid:true,birthdate:true,protocol:true,iban:true,email:true,piva:true,phone:true,name:true,address:true,signature:true,date:false,amount:false,cadastral:true,legalentity:true,title:false,cig:true,cup:false,adminid:true,rea:true,ipa:true}},
+  transparency:{label:'Trasparenza / Pubblicazione',types:{...TRANSPARENCY_TYPES}},
+  ai:{label:'Dataset / AI / Ricerca',types:{cf:true,personalid:true,birthdate:true,protocol:true,iban:true,email:true,piva:true,phone:true,name:true,address:true,signature:true,date:true,amount:true,cadastral:true,legalentity:true,title:true,cig:true,cup:false,adminid:true,rea:true,ipa:true}},
 };
 
 function environmentSummary(){
@@ -404,13 +407,13 @@ function render() {
             <option value="ai">Dataset / AI / Ricerca</option>
             <option value="custom">Personalizzato</option>
           </select>
-          <small>È un preset tecnico modificabile e non sostituisce la valutazione dell'operatore.</small>
+          <small>È un preset tecnico modificabile e non sostituisce la valutazione dell'operatore. Negli elenchi riconosciuti, le colonne Doc e Cod. Fascicoli sono escluse dall’oscuramento automatico.</small>
         </div>
         <div class="chips" id="typeChips">
-          ${chip('cf','Codice fiscale')}${chip('personalid','ID personale')}${chip('birthdate','Data di nascita')}${chip('protocol','Protocollo / ID')}${chip('iban','IBAN')}${chip('email','Email / PEC (anche istituzionali)')}${chip('phone','Telefono')}${chip('piva','P. IVA')}${chip('name','Nomi')}${chip('signature','Firme: suggerisci aree')}${chip('address','Indirizzi')}${chip('date','Altre date')}${chip('amount','Importi / valori')}
+          ${chip('cf','Codice fiscale')}${chip('personalid','ID personale')}${chip('birthdate','Data di nascita')}${chip('protocol','Protocollo / ID')}${chip('iban','IBAN')}${chip('email','Email / PEC (anche istituzionali)')}${chip('phone','Telefono')}${chip('piva','P. IVA')}${chip('name','Nomi')}${chip('title','Titoli professionali')}${chip('legalentity','Ragioni sociali')}${chip('cadastral','Dati catastali')}${chip('cig','CIG')}${chip('cup','CUP')}${chip('adminid','Altri ID amministrativi')}${chip('rea','REA')}${chip('ipa','IPA')}${chip('signature','Firme: suggerisci aree')}${chip('address','Indirizzi')}${chip('date','Altre date')}${chip('amount','Importi / valori')}
         </div>
         <div class="setting-row">
-          <label><input type="checkbox" id="ocrToggle" ${state.ocrEnabled?'checked':''}> OCR e orientamento su tutte le pagine (più lento)</label>
+          <label><input type="checkbox" id="ocrToggle" ${state.ocrEnabled?'checked':''}> OCR automatico solo quando necessario</label>
         </div>
         <div class="setting-row">
           <label for="redactionMode">Stile oscuramento</label>
@@ -473,7 +476,7 @@ function render() {
               <span>Tipo</span>
               <select id="filterType">
                 <option value="all">Tutti</option>
-                <option value="name">Nomi</option><option value="signature">Firme</option>
+                <option value="name">Nomi</option><option value="title">Titoli professionali</option><option value="legalentity">Ragioni sociali</option><option value="cadastral">Dati catastali</option><option value="cig">CIG</option><option value="cup">CUP</option><option value="adminid">Altri ID amministrativi</option><option value="rea">REA</option><option value="ipa">IPA</option><option value="signature">Firme</option>
                 <option value="cf">Codici fiscali</option>
                 <option value="personalid">ID personali</option>
                 <option value="birthdate">Date di nascita</option>
@@ -507,6 +510,11 @@ function render() {
               <span>Ricerca</span>
               <input id="filterSearch" type="search" placeholder="Cerca nei rilevamenti…" autocomplete="off">
             </label>
+          </div>
+          <div class="finding-selection" role="group" aria-label="Selezione dei rilevamenti mostrati">
+            <button id="selectAllFindings" class="ghost compact" type="button" disabled>Seleziona tutti</button>
+            <button id="clearAllFindings" class="ghost compact" type="button" disabled>Deseleziona tutti</button>
+            <span class="muted" id="findingSelectionScope" hidden>Solo i risultati filtrati</span>
           </div>
           <div id="findings" class="findings empty">Carica e analizza un documento.</div>
         </div>
@@ -698,6 +706,8 @@ function bind(){
   filterStatus.onchange=e=>{state.filters.status=e.target.value;renderFindings();};
   filterPage.onchange=e=>{state.filters.page=e.target.value;renderFindings();};
   filterSearch.oninput=e=>{state.filters.search=e.target.value;renderFindings();};
+  document.querySelector('#selectAllFindings').onclick=()=>setVisibleFindingsEnabled(true);
+  document.querySelector('#clearAllFindings').onclick=()=>setVisibleFindingsEnabled(false);
   document.querySelector('#resetFiltersBtn').onclick=()=>{
     state.filters={type:'all',status:'all',page:'all',search:''};
     syncFindingFilterControls();
@@ -767,7 +777,7 @@ function analysisIsCurrent(){
   return state.analysisSettings===JSON.stringify({types:ENABLED_TYPES,ocr:state.ocrEnabled});
 }
 function canExport(){
-  return !state.busy && !!state.pdfBytes && state.findings.some(f=>f.enabled) && analysisIsCurrent() && !state.findings.some(f=>f.pendingReview);
+  return !state.busy && !!state.pdfBytes && state.findings.some(f=>f.enabled) && analysisIsCurrent() && !state.findings.some(f=>f.pendingReview && f.enabled);
 }
 function updateExportAvailability(){
   const button=document.querySelector('#exportBtn');
@@ -796,6 +806,7 @@ function updateQueue(){
 function setBusy(on,label=''){
   state.busy=on;
   document.querySelector('#reviewSplit').inert=on;
+  updateSelectionButtons(filteredFindings());
   document.querySelectorAll('[data-type], #profileSelect, #ocrToggle, #redactionMode, #precisionMode, #chooseBtn, #folderBtn, #fileInput, #folderInput, #resetBtn').forEach(el=>el.disabled=on);
   updateExportAvailability();
   updateQueue();
@@ -833,10 +844,13 @@ async function analyzeCurrent(){
       const textContent=await page.getTextContent();
       const items=textContent.items.filter(i=>i.str && i.str.trim());
       const text=items.map(i=>i.str).join(' ');
-      const pageData={pageNumber:p,viewport,items,text,ocrText:'',ocrWords:[]};
+      const pageData={pageNumber:p,viewport,items,text,styles:textContent.styles,ocrText:'',ocrWords:[]};
 
       pageData.rotation=page.rotate;
-      if(state.ocrEnabled){
+      const nativeTextLength=text.replace(/\s+/g,'').length;
+      const needsOcr=state.ocrEnabled && nativeTextLength<80;
+      pageData.usedOcr=needsOcr;
+      if(needsOcr){
         let finalCanvas=null;
         try{
           if(!state.ocrWorker){
@@ -880,12 +894,24 @@ async function analyzeCurrent(){
           state.analysisWarnings.push(`OCR pagina ${p}: ${code}. Revisione manuale necessaria`);
           try{await state.ocrWorker?.terminate();}catch{}state.ocrWorker=null;
         }
-      }else if(text.trim().length<25){
-        state.analysisWarnings.push(`Pagina ${p} senza testo: OCR disattivato`);
+      }else if(!state.ocrEnabled && nativeTextLength<80){
+        state.analysisWarnings.push(`Pagina ${p} con testo insufficiente: OCR disattivato`);
+      }else if(state.ocrEnabled && !needsOcr){
+        recordDiag('ocr_skipped_native_text','ok',{stage:'analysis',page:p,pages:pdf.numPages});
       }
       if(state.abort) throw new Error('Operazione annullata');
       state.pages.push(pageData);
-      detectPage(pageData);
+      let glyphWidths;
+      if(!pageData.ocrWords.length && items.length){
+        // Load embedded fonts for character advances; PDF.js may use a fallback font.
+        try{
+          const operators=await page.getOperatorList();
+          glyphWidths=pdfGlyphWidths(operators,pdfjsLib.OPS);
+          await document.fonts?.ready;
+        }catch{}
+      }
+      detectPage(pageData, (item,h,w,style,x)=>measureNativeAdvances(item,h,w,style,page,x,glyphWidths));
+
       progress(5+(p/pdf.numPages)*75,`Analisi pagina ${p}/${pdf.numPages}…`);
     }
     const textualPages=state.pages.filter(pg=>pg.text.trim().length>=25).length;
@@ -900,7 +926,8 @@ async function analyzeCurrent(){
     state.currentStage='review';
     updateWizard(4);
     const warningText=state.analysisWarnings.length?' '+state.analysisWarnings.join(' | '):'';
-    updateAnalysisHint(`Analisi completata: PDF ${state.pdfType}. Controlla tutte le pagine: firme, targhe e fotografie richiedono revisione manuale.${warningText}`,state.analysisWarnings.length?'warning':'success');
+    const tableCount=state.pages.filter(p=>p.tableBounds).length;
+    updateAnalysisHint(`Analisi completata: PDF ${state.pdfType}. Controlla tutte le pagine: firme, targhe e fotografie richiedono revisione manuale.${tableCount?` Colonne Doc e Cod. Fascicoli escluse su ${tableCount} pagine.`:''}${warningText}`,state.analysisWarnings.length?'warning':'success');
     recordDiag('analysis_complete','ok',{stage:'review',pages:pdf.numPages,pdfType:state.pdfType,ocrEnabled:state.ocrEnabled,findings:state.findings.length});
     progress(100,`Completato • ${state.findings.length} rilevamenti`);
   }catch(err){
@@ -1183,7 +1210,7 @@ function addOcrAddresses(page){
   }
 }
 
-function detectPage(page){
+function detectLegacyPage(page){
   const text=(page.text+' '+page.ocrText).replace(/\s+/g,' ');
   for(const def of PATTERNS){
     if(!ENABLED_TYPES[def.key]) continue;
@@ -1205,19 +1232,105 @@ function detectPage(page){
   addRoleBasedNames(page,text);
   addOcrAddresses(page);
   addNativeAddresses(page);
+
+  // Modulo sperimentale Indicazioni 2026: aggiunge finding contestuali
+  // oscurando il valore associato alla sigla e non la sigla stessa.
+  const rulesLines = page.ocrWords?.length
+    ? ocrLines(page).map(words=>words.map(w=>w.text).join(' ').replace(/\s+/g,' ').trim()).filter(Boolean)
+    : nativeLines(page).map(items=>items.map(i=>i.str).join(' ').replace(/\s+/g,' ').trim()).filter(Boolean);
+  const ruleFindings = detectIndicazioni2026({text,pageNumber:page.pageNumber,lines:rulesLines});
+  for(const rf of ruleFindings){
+    if(!ENABLED_TYPES[rf.key]) continue;
+    addFinding(rf.type,rf.key,rf.value,rf.page,{
+      ruleId:rf.ruleId,
+      confidence:rf.confidence,
+      origin:rf.origin,
+      strategy:rf.strategy,
+      ruleset:RULES_2026.version,
+      enabled:rf.confidence!=='medium'
+    });
+  }
+
   if(ENABLED_TYPES.signature && page.signatureCandidate){
     state.findings.push({id:crypto.randomUUID(),type:"Possibile firma: da confermare",key:"signature",value:"",page:page.pageNumber,manual:true,coords:page.signatureCandidate,enabled:false,pendingReview:true});
   }
 }
 
-function addFinding(type,key,value,page){
-  if(!value || value.length<3) return;
-  state.findings.push({id:crypto.randomUUID(),type,key,value:value.trim(),page,enabled:true});
+function measureNativeAdvances(item,h,w,style,pdfPage,x,glyphWidths){
+  if(typeof document==='undefined') return null;
+  const ctx=measureNativeAdvances.ctx ||= document.createElement('canvas').getContext('2d');
+  let font;
+  try{font=pdfPage.commonObjs.get(item.fontName);}catch{}
+  const advances=measurePdfGlyphs(glyphWidths,item,w,x,{onlyExact:!!font?.data&&!font.missingFile});
+  if(advances) return advances;
+  const family=font?.loadedName||style.fontFamily||'sans-serif';
+  ctx.font=`${Math.max(1,h)}px ${JSON.stringify(family)}, ${style.fontFamily||'sans-serif'}`;
+  const total=ctx.measureText(item.str).width;
+  if(!total) return null;
+  return Array.from({length:item.str.length+1},(_,i)=>x+w*ctx.measureText(item.str.slice(0,i)).width/total);
+}
+function detectPage(page,measure){
+  // Unit fixtures without geometry exercise the legacy recognizers. Real pages never use global substring geometry.
+  const hasGeometry=!!page.ocrWords?.length || !!(page.items?.length && page.viewport?.transform);
+  if(!hasGeometry){
+    if(!page.items?.length && !page.ocrWords?.length && page.ocrText && typeof document==='undefined') detectLegacyPage(page);
+    return;
+  }
+  const atoms=page.ocrWords?.length?ocrAtoms(page):nativeAtoms(page,measure);
+  const result=detectOccurrences(atoms,page.viewport,ENABLED_TYPES);
+  page.tableBounds=result.bounds;
+  for(const f of result.findings){
+    addFinding(f.type,f.key,f.value,page.pageNumber,{ruleId:f.ruleId,confidence:f.confidence,enabled:f.enabled,rects:f.rects,anchor:[f.start,f.end]});
+  }
+  // Retain legacy context recognition for ordinary documents (not administrative tables).
+  // Legacy candidates must match a complete, unique phrase in the source line; never search substrings.
+  if(!result.bounds){
+    const offset=state.findings.length;
+    detectLegacyPage(page);
+    const legacy=state.findings.splice(offset);
+    for(const f of legacy){
+      if(f.manual){state.findings.push(f);continue;}
+      if(!['name','address'].includes(f.key)||!ENABLED_TYPES[f.key])continue;
+      if(ENABLED_TYPES.title&&f.key==='name'&&result.findings.some(g=>g.key==='name'&&g.value.toLowerCase().includes(f.value.toLowerCase())))continue;
+      const escaped=f.value.trim().split(/\s+/).map(v=>v.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('\\s+');
+      if(!escaped)continue;
+      const re=new RegExp('(?<![\\p{L}\\p{N}])'+escaped+'(?![\\p{L}\\p{N}])','giu');
+      const hits=[];
+      for(const line of result.lines){for(const m of line.text.matchAll(re))hits.push({line,m});}
+      if(hits.length!==1)continue;
+      const {line,m}=hits[0];
+      const rects=rectsForSpan(line,m.index,m.index+m[0].length,page.viewport);
+      if(!rects.length)continue;
+      const intersects=(a,b)=>a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;
+      if(result.findings.some(g=>g.key===f.key&&g.rects.some(a=>rects.some(b=>intersects(a,b)))))continue;
+      // Address fallback or standalone structured names: no numeric identifiers from legacy matching.
+      if(f.key==='name'&&/\d/.test(f.value))continue;
+      addFinding(f.type,f.key,f.value,page.pageNumber,{ruleId:'LEGACY_CONTEXT',enabled:true,rects});
+    }
+  }else if(ENABLED_TYPES.signature && page.signatureCandidate){
+    // Table suggestions cannot automatically obscure a protected column.
+  }
+}
+
+function addFinding(type,key,value,page,meta={}){
+  if(!ENABLED_TYPES[key]) return;
+  const allowSingleDigit=key==='cadastral' && /^[A-Z0-9]$/i.test(String(value||'').trim());
+  if(!value || (value.length<2 && !allowSingleDigit)) return;
+  state.findings.push({
+    id:crypto.randomUUID(),type,key,value:value.trim(),page,
+    enabled:meta.enabled===undefined?true:!!meta.enabled,
+    ruleId:meta.ruleId||null,
+    confidence:meta.confidence||null,
+    origin:meta.origin||null,
+    strategy:meta.strategy||null,
+    ruleset:meta.ruleset||null,
+    rects:meta.rects||null, anchor:meta.anchor||null
+  });
 }
 function dedupeFindings(){
   const seen=new Set();
   state.findings=state.findings.filter(f=>{
-    const k=`${f.key}|${f.value.toLowerCase()}|${f.page}`;
+    const k=`${f.key}|${f.value.toLowerCase()}|${f.page}|${JSON.stringify(f.rects||f.coords||null)}`;
     if(seen.has(k)) return false; seen.add(k); return true;
   });
 }
@@ -1265,6 +1378,20 @@ function filteredFindings(){
   });
 }
 
+function updateSelectionButtons(visible){
+  document.querySelector('#selectAllFindings').disabled=state.busy||!visible.some(f=>!f.pendingReview&&!f.enabled);
+  document.querySelector('#clearAllFindings').disabled=state.busy||!visible.some(f=>f.enabled);
+}
+
+function setVisibleFindingsEnabled(enabled){
+  if(state.busy)return;
+  for(const finding of filteredFindings()){
+    if(!finding.pendingReview)finding.enabled=enabled;
+  }
+  renderFindings();
+  renderPreview(state.currentPage);
+}
+
 function renderFindings(){
   const el=document.querySelector('#findings');
   const count=document.querySelector('#findingsCount');
@@ -1274,7 +1401,10 @@ function renderFindings(){
   updateExportAvailability();
   const total=state.findings.length;
   const visible=filteredFindings();
-  if(count) count.textContent=total ? `${visible.length} di ${total} rilevamenti` : '0 rilevamenti';
+  const active=state.findings.filter(f=>f.enabled).length;
+  if(count) count.textContent=total ? `${visible.length} di ${total} rilevamenti · ${active} selezionati` : '0 rilevamenti';
+  document.querySelector('#findingSelectionScope').hidden=visible.length===total;
+  updateSelectionButtons(visible);
   const mobileBadge=document.querySelector('#mobileFindingsBadge');
   if(mobileBadge) mobileBadge.textContent=String(total);
   if(!total){
@@ -1290,9 +1420,9 @@ function renderFindings(){
   el.className='findings';
   el.innerHTML=visible.map(f=>`<div class="finding ${f.enabled?'':'off'} ${f.manual?'manual-finding':''}" data-finding-row="${f.id}">
     <label class="switch"><input type="checkbox" data-fid="${f.id}" ${f.enabled?'checked':''} ${f.pendingReview?'disabled':''}><span></span></label>
-    <div class="finding-main"><div class="finding-type">${escapeHtml(f.type)} • pag. ${f.page}</div>${f.manual
+    <div class="finding-main"><div class="finding-type">${escapeHtml(f.type)} • pag. ${f.page}${f.confidence==='medium'?' • Da verificare':''}</div>${f.manual
       ? `<div class="manual-label">${f.pendingReview?'Suggerimento da verificare, non riconoscimento della grafia.':f.key==='signature'?'Area firma: controlla che comprenda tutti i tratti.':'Area selezionata manualmente'}</div>`
-      : `<input data-edit="${f.id}" value="${escapeHtml(f.value)}">`}</div>
+      : `<input data-edit="${f.id}" value="${escapeHtml(f.value)}" ${f.rects?'readonly title="Rilevamento ancorato: per correggere l’area usa Regola aree"':''}>`}</div>
     ${f.pendingReview?`<button class="primary" data-confirm-signature="${f.id}">Oscura firma</button><button class="ghost" data-ignore-signature="${f.id}">Non e una firma</button>`:''}
     ${f.manual && !f.pendingReview?`<button class="remove-finding" data-remove="${f.id}" title="Elimina area">×</button>`:''}
   </div>`).join('');
@@ -1365,9 +1495,10 @@ async function renderPreview(pageNum){
     }
     const pd=state.pages.find(x=>x.pageNumber===pageNum);
     const matches=resolveRectsForFinding(f,items,viewport,pd);
-    for(const coords of matches){
+    for(const [rectIndex,coords] of matches.entries()){
       const box=appendManualBox(overlay,coords,false);
       box.dataset.findingId=f.id;
+      box.dataset.rectIndex=String(rectIndex);
       box.classList.add('auto-box');
     }
   }
@@ -1382,60 +1513,9 @@ function precisionConfig(){
   return {top:.88,height:.98,padX:1};
 }
 
-function nativePhraseItems(value,items){
-  const selected=new Set();
-  const needle=normalize(value);
-  if(!needle) return selected;
-  for(const line of nativeLines({items})){
-    let text='';const spans=[];
-    for(const item of line){
-      const start=text.length;
-      text+=normalize(item.str);
-      spans.push({item,start,end:text.length});text+=' ';
-    }
-    let offset=0,index;
-    while((index=text.indexOf(needle,offset))!==-1){
-      for(const span of spans) if(span.start<index+needle.length && span.end>index) selected.add(span.item);
-      offset=index+needle.length;
-    }
-  }
-  return selected;
-}
-
 function findRectsForFinding(f,items,viewport){
-  const needle=normalize(f.value);
-  if(!needle) return [];
-  const cfg=precisionConfig();
-  const phraseItems=nativePhraseItems(f.value,items);
-  const rects=[];
-  for(const item of items){
-    const istr=normalize(item.str);
-    if(!istr) continue;
-    const tx=pdfjsLib.Util.transform(viewport.transform,item.transform);
-    const fontH=Math.max(6,Math.hypot(tx[2],tx[3]));
-    const fullW=Math.max(1,item.width*viewport.scale);
-    let x=tx[4], w=fullW;
-    let matched=false;
-    const idx=istr.indexOf(needle);
-    if(idx>=0){
-      const ratioStart=idx/Math.max(1,istr.length);
-      const ratioLen=needle.length/Math.max(1,istr.length);
-      x += fullW*ratioStart;
-      w = Math.max(fontH*.7,fullW*ratioLen);
-      matched=true;
-    }else if(phraseItems.has(item)){
-      matched=true;
-    }
-    if(!matched) continue;
-    x=Math.max(0,x-cfg.padX);
-    w=Math.min(viewport.width-x,w+cfg.padX*2);
-    const y=Math.max(0,tx[5]-fontH*cfg.top);
-    const h=Math.min(viewport.height-y,fontH*cfg.height);
-    rects.push({x:x/viewport.width,y:y/viewport.height,w:w/viewport.width,h:h/viewport.height});
-  }
-  return rects;
+  return Array.isArray(f.rects)?f.rects:[];
 }
-
 
 function ocrRectsForFinding(f,pageData){
   if(!pageData?.ocrWords?.length || !f?.value) return [];
@@ -1474,11 +1554,15 @@ function ocrRectsForFinding(f,pageData){
 }
 
 function resolveRectsForFinding(f,items,viewport,pageData){
-  const ocrRects=ocrRectsForFinding(f,pageData);
-  if(ocrRects.length) return ocrRects;
-  const nativeRects=findRectsForFinding(f,items,viewport);
-  if(nativeRects.length) return nativeRects;
-  return ocrRectsForFinding(f,pageData);
+  if(!Array.isArray(f.rects))return [];
+  const bounds=pageData?.tableBounds;
+  // Margin adjustment stays within protected columns; minimum is original source geometry.
+  const pad=state.precisionMode==='wide'?.0015:state.precisionMode==='normal'?.0007:0;
+  return f.rects.map(r=>{
+    const left=bounds?bounds.left/pageData.viewport.width:0,right=bounds?bounds.right/pageData.viewport.width:1;
+    const x=Math.max(left,r.x-pad),y=Math.max(0,r.y-pad/2),x1=Math.min(right,r.x+r.w+pad),y1=Math.min(1,r.y+r.h+pad/2);
+    return {x,y,w:x1-x,h:y1-y};
+  }).filter(r=>r.w>0&&r.h>0);
 }
 
 function paintRedaction(ctx,coords,viewport){
@@ -1645,7 +1729,7 @@ function enableBoxAdjustment(overlay){
       if(!action) return;
       e.preventDefault();e.stopPropagation();
       const c=readCoords();
-      if(f.manual) f.coords=c; else f.overrideCoords=c;
+      if(f.manual) f.coords=c; else if(f.rects && box.dataset.rectIndex!==undefined){f.rects[Number(box.dataset.rectIndex)]=c;} else f.overrideCoords=c;
       action=null;start=null;initial=null;
     };
     box.addEventListener('pointerup',up);

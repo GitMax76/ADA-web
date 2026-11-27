@@ -44,8 +44,17 @@ test('guided flow, Pages subpath, diagnostics, raster re-open, responsive review
   }
   await page.locator('#filterSearch').fill('test0-1@');
   await expect(page.locator('.finding')).toHaveCount(1);
+  await page.locator('#clearAllFindings').click();
+  await expect(page.locator('#findingsCount')).toContainText('23 selezionati');
+  await expect(page.locator('#findingSelectionScope')).toBeVisible();
+  await page.locator('#selectAllFindings').click();
+  await expect(page.locator('#findingsCount')).toContainText('24 selezionati');
   await page.locator('#resetFiltersBtn').click();
   await expect(page.locator('.finding')).toHaveCount(24);
+  await page.locator('#clearAllFindings').click();
+  await expect(page.locator('#exportBtn')).toBeDisabled();
+  await page.locator('#selectAllFindings').click();
+  await expect(page.locator('[data-fid]:checked')).toHaveCount(24);
 
   const downloadPromise = page.waitForEvent('download');
   await page.locator('#exportBtn').click();
@@ -218,4 +227,113 @@ test('medical footer signatories and redaction selector remain robust and readab
   const mobileBox = await selector.boundingBox();
   expect(mobileBox.width).toBeGreaterThan(250);
   expect(mobileBox.width).toBeLessThanOrEqual(390);
+});
+
+
+test('13-page native-text table stays fast, keeps row ids visible and exports', async ({ page }) => {
+  await page.goto('/ADA-web/');
+  if (await page.locator('#policyModal').isVisible().catch(()=>false)) {
+    for (const section of await page.locator('[data-policy-section] summary').all()) await section.click();
+    await page.locator('#policyConfirm').check();
+    await page.locator('#policyAcceptBtn').click();
+  }
+
+  const pdf = await PDFDocument.create();
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  for (let pno=1; pno<=13; pno++) {
+    const p=pdf.addPage([842,595]);
+    const rows=[
+      ['27832','Richiesta autorizzazione - PROT. 25919'],
+      ['27826','Amalfi SA - pratica catastale Fg 5 plla 1820'],
+      ['27825','Opera pubblica - CUP D67J25000090005 - CIG BD83A6DC73'],
+    ];
+    let y=540;
+    for(const [id,desc] of rows){
+      p.drawText(id,{x:30,y,font,size:10});
+      p.drawText(desc,{x:110,y,font,size:10});
+      y-=32;
+    }
+  }
+  const started=Date.now();
+  await page.locator('#fileInput').setInputFiles({
+    name:'table-13-pages.pdf',
+    mimeType:'application/pdf',
+    buffer:Buffer.from(await pdf.save())
+  });
+  // OCR remains enabled: native text pages must skip it automatically.
+  await expect(page.locator('#ocrToggle')).toBeChecked();
+  await page.locator('#analyzeBtn').click();
+  await expect(page.locator('#progressLabel')).toContainText('Completato',{timeout:20000});
+  expect(Date.now()-started).toBeLessThan(20000);
+
+  const values=await page.locator('[data-edit]').evaluateAll(nodes=>nodes.map(n=>n.value));
+  expect(values).toContain('25919');
+  expect(values).toContain('5');
+  expect(values).toContain('1820');
+  expect(values).toContain('BD83A6DC73');
+  expect(values).not.toContain('D67J25000090005');
+  expect(values).not.toContain('27832');
+  expect(values).not.toContain('27826');
+  expect(values).not.toContain('27825');
+
+  await expect(page.locator('#exportBtn')).toBeEnabled();
+  const downloadPromise=page.waitForEvent('download');
+  await page.locator('#exportBtn').click();
+  const download=await downloadPromise;
+  expect(download.suggestedFilename()).toBe('table-13-pages_ANONIMIZZATO.pdf');
+});
+
+// A full app/export regression. This checks pixels of the re-opened PDF, not only finding labels.
+test('transparency: public columns, CUP/CIG and dates survive the actual exported PDF', async ({page})=>{
+  await page.goto('/ADA-web/');
+  for(const section of await page.locator('[data-policy-section] summary').all()) await section.click();
+  await page.locator('#policyConfirm').check();await page.locator('#policyAcceptBtn').click();
+  const pdf=await PDFDocument.create();const font=await pdf.embedFont(StandardFonts.Helvetica);
+  for(let n=0;n<6;n++){
+    const p=pdf.addPage([842,595]);
+    const draw=(text,x,y)=>p.drawText(text,{x,y,font,size:10});
+    draw('Doc',20,550);draw('Oggetto',100,550);draw('Cod. Fascicoli',685,550);
+    draw('28085',20,510);draw('Comune di Alfa - Mario Rossi - Fg 8 plla 205',100,510);draw('34.43.08/205/2019',685,510);
+    draw('28086',20,470);draw('CUP A12B25000080005 CIG A00ACE9185 - Art. 8 legge 42/2004',100,470);draw('34.43.08/8/2019',685,470);
+    draw('28087',20,430);draw('Dott.ssa Anna Verdi - Prot. 205 - 08/01/2026 - euro 205,00',100,430);draw('34.43.08/205/2026',685,430);
+    draw('Su richiesta del cliente DE',100,390);draw('LUCA ANNA Eneltel 123456789',100,378);draw('28088',20,378);draw('34.43.08/205/2026',685,378);
+    draw('28089',20,340);draw('Comune di Alfa - ROSSI MARIO Autocarrozzeria Aurora - PdC',100,340);draw('34.43.08/205/2026',685,340);
+    draw('28090',20,300);draw('Allacciamento impianto fotovoltaico OLEIFICIO DEL SOLE DI BIANCHI ANNA Eneltel 123456789',100,300);draw('34.43.08/205/2026',685,300);
+  }
+  const bytes=Buffer.from(await pdf.save());
+  await page.locator('#fileInput').setInputFiles({name:'synthetic-transparency.pdf',mimeType:'application/pdf',buffer:bytes});
+  await page.locator('#profileSelect').selectOption('transparency');
+  await expect(page.locator('[data-type="cadastral"]')).toBeChecked();
+  for(const key of ['protocol','address','date','amount','cup','cig'])await expect(page.locator(`[data-type="${key}"]`)).not.toBeChecked();
+  await page.locator('#analyzeBtn').click();await expect(page.locator('#progressLabel')).toContainText('Completato',{timeout:30000});
+  const values=await page.locator('[data-edit]').evaluateAll(nodes=>nodes.map(n=>n.value));
+  for(const value of ['8','205','Mario Rossi','Dott.ssa Anna Verdi','DE LUCA ANNA','Autocarrozzeria Aurora','OLEIFICIO DEL SOLE DI BIANCHI ANNA'])expect(values).toContain(value);
+  for(const value of ['A12B25000080005','A00ACE9185','28085','28086','28087','08/01/2026','34.43.08/205/2019'])expect(values).not.toContain(value);
+  // Public text regions are expressed in PDF points, so they remain comparable at different canvas sizes.
+  const regions=[[12,76,80,310],[680,76,830,310],[98,113,660,134]];
+  const capture=async()=>page.locator('.preview canvas').first().evaluate((canvas,regions)=>{
+    const ctx=canvas.getContext('2d');const {width,height}=canvas;
+    return regions.map(([x0,y0,x1,y1])=>{
+      const x=Math.floor(x0/842*width),y=Math.floor(y0/595*height),w=Math.ceil((x1-x0)/842*width),h=Math.ceil((y1-y0)/595*height);
+      const pixels=ctx.getImageData(x,y,w,h).data;let dark=0;
+      for(let i=0;i<pixels.length;i+=4)if(pixels[i]<100&&pixels[i+1]<100&&pixels[i+2]<100)dark++;
+      return dark/(w*h);
+    });
+  },regions);
+  const before=await capture();
+  const geometry=await page.locator('.preview .auto-box').evaluateAll(nodes=>nodes.map(n=>[parseFloat(n.style.left),parseFloat(n.style.top),parseFloat(n.style.width)]));
+  expect(geometry.length).toBeGreaterThan(0);
+  for(const [x,y,w] of geometry){expect(x).toBeGreaterThanOrEqual(99/842*100-0.1);expect(x+w).toBeLessThanOrEqual(685/842*100+0.1);expect(y).not.toBeGreaterThan(100);}
+  // Check that toggles invalidate stale analysis and remove the entire category on re-analysis.
+  await page.locator('[data-type="cadastral"]').uncheck();await expect(page.locator('#exportBtn')).toBeDisabled();
+  await page.locator('#analyzeBtn').click();await expect(page.locator('#progressLabel')).toContainText('Completato',{timeout:30000});
+  expect(await page.locator('[data-edit]').evaluateAll(nodes=>nodes.map(n=>n.value))).not.toContain('8');
+  await page.locator('#profileSelect').selectOption('transparency');await page.locator('#analyzeBtn').click();await expect(page.locator('#progressLabel')).toContainText('Completato',{timeout:30000});
+  const promise=page.waitForEvent('download');await page.locator('#exportBtn').click();const download=await promise;
+  const chunks=[];for await(const chunk of await download.createReadStream())chunks.push(chunk);const exported=Buffer.concat(chunks);
+  expect((await PDFDocument.load(exported)).getPageCount()).toBe(6);
+  await page.locator('#fileInput').setInputFiles({name:'reopen-synthetic.pdf',mimeType:'application/pdf',buffer:exported});
+  await page.locator('#ocrToggle').uncheck();await page.locator('#analyzeBtn').click();await expect(page.locator('#progressLabel')).toContainText('Completato',{timeout:30000});
+  const after=await capture();
+  for(let i=0;i<before.length;i++){expect(before[i]).toBeGreaterThan(0);expect(Math.abs(after[i]-before[i])).toBeLessThan(0.018);}
 });
